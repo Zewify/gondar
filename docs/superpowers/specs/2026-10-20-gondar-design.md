@@ -42,6 +42,32 @@ The floating window is the part those apps don't obviously offer.
 There is no documented API for plan usage, so both sources below are undocumented and can change without notice.
 The app must fail visibly, never silently: if a source stops answering in the shape it expects, it shows the last good values marked stale and a short reason.
 
+### Source 0: Claude Code's status line (decided 2026-10-20)
+
+The usage endpoint rate-limits hard: on 2026-10-20 it answered 429 with `retry-after: 0` for long stretches, and Gondar showed a spinner or stale numbers.
+A status line command never hits that limit because it never asks Anthropic: Claude Code pipes it a JSON object on every status line refresh, and that object carries `rate_limits`.
+So Gondar reads the numbers the same way, and asks Anthropic only for what the status line lacks.
+
+What Claude Code sends (from a community status line tool's input schema and community docs; not yet captured from a real session, so the builder captures one real sample through the feed tool before finalising the parser): `rate_limits.five_hour`, `rate_limits.seven_day`, and on some plans `rate_limits.seven_day_sonnet` and `rate_limits.seven_day_opus`, each `{used_percentage, resets_at}` with `used_percentage` a number from 0 to 100 and `resets_at` Unix seconds; any of them may be null or missing (they appear after the session's first response, on subscription plans only).
+The object also carries the session's working folder, transcript path, model and cost; none of that may be stored.
+
+The feed: a small command-line tool, `gondar-feed`, shipped inside the app bundle (`Gondar.app/Contents/MacOS/gondar-feed`).
+The status line command becomes `"/Applications/Gondar.app/Contents/MacOS/gondar-feed" <the existing command>`, for example `… gondar-feed npx -y example-statusline`.
+It reads all of standard input, writes only `rate_limits` and the time it received them to `~/Library/Application Support/Gondar/statusline.json` (atomically, mode 0600), then runs the wrapped command with the same input and passes its output and exit code through, so the terminal status line looks exactly as before; with no wrapped command it prints nothing.
+It must never slow the status line down noticeably (the write is a few hundred bytes) and must never fail the wrapped command: if the write fails, it still runs it.
+Gondar never edits `~/.claude/settings.json` itself; the Settings menu has "Connect Claude Code's status line…", which shows the exact change with a Copy button, and the person makes it.
+
+How Gondar uses it:
+- It watches the file and reads it on every change.
+- The mapping: `five_hour` → "Current session", `seven_day` → "Weekly · all models", `seven_day_sonnet` → "Weekly · Sonnet", `seven_day_opus` → "Weekly · Opus"; percentages rounded, reset times rounded to the minute.
+- The status line carries no account, so feed data belongs to whichever account `~/.claude.json` names when it arrives; data received before the last account change is ignored.
+- Feed data counts as fresh for 10 minutes. A limit present in fresh feed data is shown from the feed; limits only the API knows (Fable, extra usage, anything new) come from the API.
+- While the feed is fresh, the API is asked at most every 15 minutes (for those extra limits and for the account check); otherwise polling is as in "Polling" below.
+- The panel's source line says "Live from Claude Code" while the feed is fresh, and "From Anthropic" otherwise.
+
+Last numbers survive a relaunch: Gondar saves the last snapshot it showed (account and organisation IDs, the limits, the time; never a token, never an email) to `~/Library/Application Support/Gondar/last.json`, and at launch shows it at once, marked with its age, if it belongs to the account `~/.claude.json` names.
+The header's email, organisation and plan come from `~/.claude.json` (`emailAddress`, `organizationName`, `organizationType`, `organizationRateLimitTier`) until the profile endpoint confirms them, so nothing personal is written by Gondar.
+
 ### Source 1: Claude Code's login (measured 2026-10-20)
 
 Claude Code stores its login in the login Keychain as a generic password with service `Claude Code-credentials`.
@@ -141,7 +167,7 @@ A header with the signed-in account's email and organisation name, the plan (fro
 Builder's call: the source line ("From Claude Code" or "From claude.ai") sits in the header, under the age, rather than in the footer.
 The floating window does not show the email: it is kept as minimal as possible (decided 2026-10-20), so a switch shows in the panel.
 One row per limit, in the order the source gives: a name ("Current session", "Weekly · all models", "Weekly · Fable"), a bar, the percentage, and "Resets in 1 h 36 m · 11:20 PM" (the clock time in the Mac's own format, with the date when it is not today).
-Bars are amber; a limit that is not active is drawn muted.
+Bars take the same level colour as the percentage above them (green, amber, red; decided 2026-10-20), including inactive limits.
 The percentage is coloured by its level (decided on 2026-10-20): green `#7BC47F` under 50 %, amber `#F48E48` from 50 to 79 %, and red `#F26B5B` at 80 % and over or whenever `severity` is not `normal`.
 A limit that is not active keeps its level colour, so the colour always means the level.
 Each colour is at least 4.5:1 on the panel `#201B17` (8.2, 7.2 and 5.7).
