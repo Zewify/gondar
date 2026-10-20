@@ -25,7 +25,7 @@ The floating window is the part those apps don't obviously offer.
 
 - Sending prompts or using the login for anything but reading usage.
 - Usage history, charts or cost estimates.
-- Several accounts at once.
+- Several accounts at once: a person may switch Claude accounts from time to time, and the app shows only the one signed in now (see "Following the signed-in account").
 - The Mac App Store (see "Distribution").
 - Notifications at thresholds — a later version, if wanted.
 - Windows, iPhone or iPad.
@@ -80,7 +80,17 @@ The measurement needs a real sign-in, so the builder asks the maintainer to sign
 
 A claude.ai login can belong to several organisations (a Team organisation and a personal one, say).
 The builder's call: show the organisation that the claude.ai session marks as active or default; if there are several, the panel gets a small organisation picker that remembers the choice.
-When source 2 is the fallback for source 1, it must use the same organisation as Claude Code's token if the builder can find a way to tell which that is (the `/api/oauth/profile` endpoint is the first thing to try); if not, the panel's source line names the organisation shown, so the numbers can never be mistaken for the other one's.
+When source 2 is the fallback for source 1, it must use the organisation Claude Code is signed in to (`oauthAccount.organizationUuid`, below); if the claude.ai session has no access to that organisation, the fallback is not used and the app shows the stale state instead.
+
+### Following the signed-in account
+
+A person may switch between Claude accounts (with `/login` in Claude Code), and the app must simply show whichever account is signed in, with no setting to change.
+Claude Code records the signed-in account in `~/.claude.json` under `oauthAccount` (measured 2026-10-20): `emailAddress`, `accountUuid`, `organizationUuid`, `organizationName`, `organizationType`, `seatTier`, among others.
+The app reads it on every poll and also watches the file, so a switch shows within seconds rather than at the next poll.
+When `accountUuid` or `organizationUuid` changes, the app throws away the previous account's numbers at once and polls immediately; it must never show one account's numbers under another account's name, even for a moment, and shows a loading state instead.
+The Keychain token itself carries no readable account ID, so the builder checks that it belongs to the account in `~/.claude.json` (the `api.anthropic.com/api/oauth/profile` endpoint is the first thing to try, once per token, not every poll); if the two disagree in the middle of a switch, the app waits for the next read rather than guessing.
+If no such check can be found, the builder records that here, and the app labels the numbers with the account from `~/.claude.json` and re-reads both together on every change to either.
+For source 2, the account is whichever one is signed in to claude.ai in the app's own window, and switching means signing out and in there.
 
 ### Polling
 
@@ -103,7 +113,8 @@ When there is no usable data, the mark shows alone with a dash.
 ### The panel
 
 Opened by clicking the menu bar item; a window-style `MenuBarExtra`, as in PortGlimpse.
-A header with the plan name (from `subscriptionType` and `rateLimitTier` where known, for example "Max · Max 20x") and "Updated 1 min ago".
+A header with the signed-in account's email and organisation name, the plan (from `subscriptionType` and `rateLimitTier` where known, for example "Max · Max 20x") and "Updated 1 min ago".
+The floating window shows the email too, small, so a switch is visible there as well.
 One row per limit, in the order the source gives: a name ("Current session", "Weekly · all models", "Weekly · Fable"), a bar, the percentage, and "Resets in 1 h 36 m · 11:20 PM" (the clock time in the Mac's own format, with the date when it is not today).
 Bars are amber; a limit that is not active is drawn muted.
 If extra usage is enabled, a last row shows spend against its limit in its own currency.
