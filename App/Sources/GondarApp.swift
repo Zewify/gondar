@@ -31,7 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         })
     }
 
-    /// The Debug-only demo (`-GondarDemo stale`), which runs beside the installed app under the same bundle ID and defaults.
+    /// The Debug-only demo (`-GondarDemo live` or `stale`), which runs beside the installed app under the same bundle ID and defaults.
     private static var isDemo: Bool {
         #if DEBUG
         DemoMode.isEnabled

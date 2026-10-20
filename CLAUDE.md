@@ -18,7 +18,8 @@ Plan: `docs/superpowers/plans/2026-10-20-gondar-app.md`.
 - `./scripts/package.sh` — the release build: Release, universal (the app and `gondar-feed` both checked with `lipo`), `codesign --verify --deep --strict`, then the zip, its SHA-256 and the release notes in `build/release/`. The Release workflow runs it; locally it is only a dry run.
 - `./scripts/build.sh [Debug|Release]` — generates the project and builds; prints the app path.
 - `./scripts/install-local.sh` — a Release build copied to `/Applications` and launched.
-- `open -n build/DerivedData/Build/Products/Debug/Gondar.app --args -GondarDemo stale` — a Debug build with made-up stale numbers and no network, opening the pop-out; it saves no window frame or flags, since it shares the installed app's defaults. Compiled out of Release.
+- `open -n build/DerivedData/Build/Products/Debug/Gondar.app --args -GondarDemo live` (or `stale`) — a Debug build with a made-up account (test@example.com, Example Org) and numbers, no network, opening the pop-out; it saves no window frame or flags, since it shares the installed app's defaults. Compiled out of Release.
+- `./scripts/capture-shots.sh` — zewify.com's screenshots: builds Debug, runs the `live` demo beside any installed Gondar (found and quit by process ID, never by name), and captures the pop-out and the panel at 1x into `build/shots/` (needs Accessibility for the terminal). Website screenshots come only from this, never from a real account, whose panel shows its email and organisation; copy them to the zewify repo's `public/gondar/shots/`.
 - `./scripts/make-icon.sh` — re-renders AppIcon.appiconset from the mark in `App/Sources/GaugeMark.swift`; edit that file, not the PNGs.
 - `project.yml` is the XcodeGen spec; the `.xcodeproj` is generated and gitignored, so never edit or commit it.
 
