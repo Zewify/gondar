@@ -8,10 +8,13 @@ Plan: `docs/superpowers/plans/2026-10-20-gondar-app.md`.
 
 - `Core/` — the `GondarCore` Swift package: every rule, Foundation only.
 - `App/` — the thin SwiftUI menu bar app.
+- `Feed/` — `gondar-feed`, a command-line tool shipped at `Gondar.app/Contents/MacOS/gondar-feed`.
+  Claude Code's status line command wraps through it: it saves only `rate_limits` and the time to `~/Library/Application Support/Gondar/statusline.json` (atomic, 0600), then runs the wrapped command with the same stdin, its output inherited and its exit status passed through.
+  The person wires it by hand in `~/.claude/settings.json`, as `"statusLine": {"type": "command", "command": "/Applications/Gondar.app/Contents/MacOS/gondar-feed npx -y example-statusline"}` (the existing command after the tool's path); Gondar never edits that file.
 
 ## Commands
 
-- `./scripts/test.sh` — core tests, then an app build. Run before every commit; the exit code is the verdict.
+- `./scripts/test.sh` — core tests, an app build, then `scripts/test-feed.sh` (the built app's `gondar-feed`, under a temp `HOME`). Run before every commit; the exit code is the verdict.
 - `./scripts/build.sh [Debug|Release]` — generates the project and builds; prints the app path.
 - `./scripts/install-local.sh` — a Release build copied to `/Applications` and launched.
 - `open -n build/DerivedData/Build/Products/Debug/Gondar.app --args -GondarDemo stale` — a Debug build with made-up stale numbers and no network, opening the pop-out; it saves no window frame or flags, since it shares the installed app's defaults. Compiled out of Release.

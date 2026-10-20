@@ -31,6 +31,10 @@ targets:
         buildPhase: resources
     dependencies:
       - package: GondarCore
+      - target: gondar-feed
+        embed: true
+        copy:
+          destination: executables
     info:
       path: App/Info.plist
       properties:
@@ -50,6 +54,26 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ENABLE_HARDENED_RUNTIME: YES
         GENERATE_INFOPLIST_FILE: NO
+  gondar-feed:
+    # Claude Code's status line command wraps through this; it ships at Gondar.app/Contents/MacOS/gondar-feed.
+    type: tool
+    platform: macOS
+    configFiles:
+      Debug: App/Signing.xcconfig
+      Release: App/Signing.xcconfig
+    sources:
+      - path: Feed
+    dependencies:
+      - package: GondarCore
+    settings:
+      base:
+        PRODUCT_NAME: gondar-feed
+        PRODUCT_BUNDLE_IDENTIFIER: com.zewify.gondar.feed
+        # An Info.plist inside the binary gives its signature this identifier rather than a hash.
+        GENERATE_INFOPLIST_FILE: YES
+        CREATE_INFOPLIST_SECTION_IN_BINARY: YES
+        ENABLE_HARDENED_RUNTIME: YES
+        SKIP_INSTALL: YES
 schemes:
   Gondar:
     build:
