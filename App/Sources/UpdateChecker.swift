@@ -7,9 +7,9 @@ import GondarCore
 @MainActor
 @Observable
 final class UpdateChecker {
-    /// Both stay nil until the repository is public: with no feed there is no request, no menu item and no update row.
-    static let installCommand: String? = nil
-    static let feed: URL? = nil
+    /// Setting either to nil switches the check off: with no feed there is no request, no menu item and no update row.
+    static let installCommand: String? = "curl -fsSL https://zewify.com/gondar/install.sh | sh"
+    static let feed: URL? = URL(string: "https://api.github.com/repos/Zewify/gondar/releases/latest")
 
     private enum Keys {
         static let enabled = "checkForUpdates"
