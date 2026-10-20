@@ -106,8 +106,10 @@ enum StatusLineHookupAlert {
         alert.alertStyle = .informational
         switch hookup {
         case .connected:
-            alert.messageText = "Claude Code's status line is connected."
-            alert.informativeText = "Its command in ~/.claude/settings.json already runs through Gondar's feed, so Gondar shows live numbers while Claude Code runs."
+            // When a session last genuinely reported, so a hook-up that never delivers is visible.
+            let feed = (try? Data(contentsOf: GondarFolder.feedURL)).flatMap { try? StatusLineFeed.parse($0) }
+            alert.messageText = StatusLineHookup.connectedStatus(lastReport: feed?.lastReport, now: Date())
+            alert.informativeText = "The status line command in ~/.claude/settings.json already runs through Gondar's feed, so Gondar shows live numbers while Claude Code runs."
             alert.addButton(withTitle: "OK")
         case .wrap:
             alert.messageText = "Connect Claude Code's status line"

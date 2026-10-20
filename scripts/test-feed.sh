@@ -61,11 +61,11 @@ printf '{}' | "$feed" true
 printf '{"cwd":"/x","rate_limits":null}' | "$feed" true
 [[ "$(cat "$file")" == "$before" ]] || fail "input without limits changed the file"
 
-# A new window replaces the old; then a session behind it reporting a lower number for that window does not lower it.
+# A genuine report replaces the entry outright: another session's (another account's, say) lower number in the same window too.
 printf '{"session_id":"s-1","cost":{"total_api_duration_ms":400},"rate_limits":{"five_hour":{"used_percentage":40,"resets_at":1790018000}}}' | "$feed" true
 printf '{"session_id":"s-2","cost":{"total_api_duration_ms":1}}' | "$feed" true
 printf '{"session_id":"s-2","cost":{"total_api_duration_ms":2},"rate_limits":{"five_hour":{"used_percentage":20,"resets_at":1790018000}}}' | "$feed" true
-grep -q '"used_percentage":40' "$file" || fail "same window at 20 % replaced 40 %: $(cat "$file")"
+grep -q '"used_percentage":20' "$file" || fail "a genuine 20 % did not replace 40 %: $(cat "$file")"
 grep -q '"seven_day"' "$file" || fail "a limit the input lacked was dropped"
 
 # A temp file a killed writer left behind goes once it is a minute old; a fresh one stays.

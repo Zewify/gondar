@@ -27,12 +27,18 @@ public struct FeedSnapshot: Sendable, Equatable {
     public var limits: [UsageLimit] { entries.map(\.limit) }
 
     /// The entries that count at `now`, each by its own time: received after the last account change (earlier ones may be
-    /// another account's) and fresh, that is under `LimitMerge.freshness` old and not from the future.
+    /// another account's), fresh (under `LimitMerge.freshness` old and not from the future), and for a window that has not
+    /// reset yet, since a passed window's number is no longer the usage.
     public func usable(after lastAccountChange: Date, now: Date) -> [FeedEntry] {
         entries.filter { entry in
-            entry.receivedAt > lastAccountChange && (-5 ..< LimitMerge.freshness).contains(now.timeIntervalSince(entry.receivedAt))
+            entry.receivedAt > lastAccountChange
+                && (-5 ..< LimitMerge.freshness).contains(now.timeIntervalSince(entry.receivedAt))
+                && entry.limit.resetsAt.map { $0 > now } ?? true
         }
     }
+
+    /// When a session last genuinely reported any limit, whatever the account; nil when none has yet.
+    public var lastReport: Date? { entries.map(\.receivedAt).max() }
 }
 
 /// Claude Code pipes its status line command a JSON object on every refresh; its `rate_limits` carry the usage numbers.
@@ -61,11 +67,10 @@ public enum StatusLineFeed {
     /// with its last API duration and when it was last seen, forgetting sessions unseen for a day. A session's first input only
     /// records its baseline.
     ///
-    /// A genuine report merges per limit, and moves that limit's own `received_at`: in the same window (reset times under
-    /// two minutes apart) the higher number wins, since usage only rises within a window; a later window replaces an earlier one;
-    /// an earlier window and a limit the input lacks leave the stored entry, and its time, alone. A missing reset time is an
-    /// unknown window: an entry with one replaces a stored entry without; one without replaces only a stored entry that also
-    /// lacks one. Input without a session ID or an API duration changes nothing. An unreadable `existing` counts as none.
+    /// A genuine report is the newest word on each limit it carries, so it replaces that stored entry outright (number, reset
+    /// time and its own `received_at`), whatever the windows: comparing windows or keeping the higher number would let one
+    /// account's number outlive a switch under the next account's report. A limit the input lacks keeps its entry and time.
+    /// Input without a session ID or an API duration changes nothing. An unreadable `existing` counts as none.
     public static func mergeStored(existing: Data?, incoming: Data, receivedAt: Date, sessionKey: (String) -> String) -> Data? {
         guard let input = try? JSONSerialization.jsonObject(with: incoming) as? [String: Any],
             let sessionID = input["session_id"] as? String, !sessionID.isEmpty,
@@ -88,26 +93,7 @@ public enum StatusLineFeed {
 
         if genuine {
             for (name, new) in limits(in: input["rate_limits"]) {
-                let current = merged[name]
-                var entry: [String: Double]
-                switch (new["resets_at"].map(seconds), current?["resets_at"].map(seconds)) {
-                case (_, nil):
-                    // Nothing stored, or the stored window is unknown: the reported entry whole.
-                    entry = new
-                case (nil, .some):
-                    continue
-                case let (newReset?, oldReset?):
-                    if abs(newReset - oldReset) < sameWindow {
-                        entry = current ?? new
-                        if let used = new["used_percentage"], used > entry["used_percentage"] ?? -.infinity {
-                            entry["used_percentage"] = used
-                        }
-                    } else if newReset > oldReset {
-                        entry = new
-                    } else {
-                        continue
-                    }
-                }
+                var entry = new
                 entry["received_at"] = now
                 merged[name] = entry
                 changed = true
@@ -142,11 +128,6 @@ public enum StatusLineFeed {
             if !fields.isEmpty { kept[name] = fields }
         }
         return kept
-    }
-
-    /// Unix seconds, given seconds or milliseconds.
-    private static func seconds(_ value: Double) -> Double {
-        value > 1e11 ? value / 1000 : value
     }
 
     /// Reads the file `mergeStored` wrote. A missing or null `rate_limits` is an empty feed; a limit that cannot be read,
@@ -195,8 +176,9 @@ public enum LimitMerge {
     public static let freshness: TimeInterval = 600
 
     /// The API's report with every limit in `feed` (the usable feed entries) replacing the API's.
-    /// Only the numbers change: the API entry keeps its id, severity, activity and share. In the same window (reset times
-    /// under two minutes apart) the higher percentage wins, since usage only rises within a window and either may be behind.
+    /// Only the numbers change: the API entry keeps its id, severity, activity and share. With both reset times known:
+    /// in the same window (under two minutes apart) the higher percentage wins, since usage only rises within a window and
+    /// either may be behind; when the API's window is the later one, the API's entry stays as it is; when the feed's is, the feed's.
     /// The order is fixed whatever the source: session, weekly all models, scoped limits, then anything else,
     /// each group in the API's order with feed-only entries after, so rows do not jump when the source changes.
     public static func merge(api: UsageReport?, feed: [UsageLimit]) -> UsageReport {
@@ -214,8 +196,10 @@ public enum LimitMerge {
             if let first = limits.firstIndex(where: matches) {
                 // The feed's entry takes the first match's place; any further match of the same limit goes.
                 let old = limits[first]
-                let sameWindow = old.resetsAt.flatMap { a in fresh.resetsAt.map { b in abs(a.timeIntervalSince(b)) < StatusLineFeed.sameWindow } } ?? false
-                let replaced = UsageLimit(
+                // Seconds by which the API's window ends after the feed's; nil when either is unknown.
+                let apiLater = old.resetsAt.flatMap { a in fresh.resetsAt.map { b in a.timeIntervalSince(b) } }
+                let sameWindow = apiLater.map { abs($0) < StatusLineFeed.sameWindow } ?? false
+                let replaced = (apiLater ?? 0) >= StatusLineFeed.sameWindow ? old : UsageLimit(
                     kind: old.kind, scopeName: old.scopeName, percent: sameWindow ? max(old.percent, fresh.percent) : fresh.percent,
                     severity: old.severity, resetsAt: fresh.resetsAt, isActive: old.isActive, shareOfWeekly: old.shareOfWeekly,
                     position: old.position

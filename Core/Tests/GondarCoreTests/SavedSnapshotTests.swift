@@ -69,3 +69,16 @@ private func savedSnapshot() -> Snapshot {
     let decoded = try #require(SavedSnapshot.decode(SavedSnapshot.encode(snapshot: plain, accountKey: account)))
     #expect(decoded.1.extra == nil)
 }
+
+/// Feed-only numbers lack the API's extra rows; the saved copy keeps them, with the feed's numbers over it.
+@Test func feedOnlyNumbersKeepTheSavedExtraRows() {
+    let saved = savedSnapshot().report
+    let feedOnly = UsageReport(limits: [
+        UsageLimit(kind: .session, scopeName: nil, percent: 50, severity: .normal, resetsAt: fetched + 3600, isActive: true, shareOfWeekly: nil),
+    ], extra: nil)
+    let kept = SavedSnapshot.report(toSave: feedOnly, feedOnly: true, saved: saved)
+    #expect(kept.limits.map(\.percent) == [50, 2, 70])
+    #expect(kept.extra == saved.extra)
+    #expect(SavedSnapshot.report(toSave: feedOnly, feedOnly: false, saved: saved) == feedOnly)
+    #expect(SavedSnapshot.report(toSave: feedOnly, feedOnly: true, saved: nil) == feedOnly)
+}

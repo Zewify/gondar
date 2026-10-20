@@ -35,6 +35,13 @@ public enum SavedSnapshot {
         return (report, fetchedAt)
     }
 
+    /// What to write for `shown`. Numbers from the feed alone lack the rows only the API knows (Fable, extra usage), so then the
+    /// saved report for the same account keeps those rows, with the feed's limits merged over it; otherwise `shown` as it is.
+    public static func report(toSave shown: UsageReport, feedOnly: Bool, saved: UsageReport?) -> UsageReport {
+        guard feedOnly, let saved else { return shown }
+        return LimitMerge.merge(api: saved, feed: shown.limits)
+    }
+
     private struct File: Codable {
         let accountUUID: String
         let organizationUUID: String

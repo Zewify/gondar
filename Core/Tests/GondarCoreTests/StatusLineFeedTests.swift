@@ -119,6 +119,18 @@ private func limit(_ kind: LimitKind, _ scope: String?, _ percent: Int, position
     #expect(LimitMerge.merge(api: api, feed: [limit(.session, nil, 40)]).limits.map(\.percent) == [40])
 }
 
+/// When the API has already seen the next window, the feed's number for the earlier one is stale: the API's entry stays.
+@Test func aLaterApiWindowWinsOverTheFeed() {
+    let reset = Date(timeIntervalSince1970: 1_792_000_000)
+    let api = UsageReport(limits: [limit(.session, nil, 3, resetsAt: reset)], extra: nil)
+    let merged = LimitMerge.merge(api: api, feed: [limit(.session, nil, 95, resetsAt: reset - 18_000)]).limits
+    #expect(merged.map(\.percent) == [3])
+    #expect(merged.map(\.resetsAt) == [reset])
+    // 119 s earlier is still the same window: the higher number.
+    #expect(LimitMerge.merge(api: api, feed: [limit(.session, nil, 95, resetsAt: reset - 119)]).limits.map(\.percent) == [95])
+    #expect(LimitMerge.merge(api: api, feed: [limit(.session, nil, 95, resetsAt: reset - 120)]).limits.map(\.percent) == [3])
+}
+
 @Test func usableEntriesAreFreshAndAfterTheAccountChange() {
     let feed = FeedSnapshot(entries: [
         FeedEntry(limit: limit(.session, nil, 10), receivedAt: received),
@@ -131,6 +143,10 @@ private func limit(_ kind: LimitKind, _ scope: String?, _ percent: Int, position
     // An entry received before the switch is ignored even though another entry is newer.
     #expect(feed.usable(after: received - 1, now: received + 10).map(\.limit.percent) == [10])
     #expect(feed.usable(after: received, now: received + 10).isEmpty)
+    // A window that has reset is no longer the usage: never shown, let alone live.
+    let passed = FeedSnapshot(receivedAt: received, limits: [limit(.session, nil, 95, resetsAt: received + 60)])
+    #expect(passed.usable(after: .distantPast, now: received + 59).count == 1)
+    #expect(passed.usable(after: .distantPast, now: received + 60).isEmpty)
     // Future-dated by more than a few seconds: ignored.
     #expect(FeedSnapshot(receivedAt: received + 3600, limits: [limit(.session, nil, 1)]).usable(after: .distantPast, now: received).isEmpty)
     #expect(FeedSnapshot(receivedAt: received + 4, limits: [limit(.session, nil, 1)]).usable(after: .distantPast, now: received).count == 1)
@@ -282,22 +298,21 @@ private func seen(_ rateLimits: String = "{}", apiMs: Int = 1000) -> Data {
     #expect(Set(limits["seven_day"]?.keys ?? [:].keys) == ["resets_at", "received_at"])
 }
 
-@Test func mergeKeepsTheHigherNumberInTheSameWindow() throws {
+/// A genuine report is the newest word: after a switch, account B's lower number in the same window, or its earlier window,
+/// must replace account A's, never be maxed with it or dropped.
+@Test func aGenuineReportReplacesTheEntryOutright() throws {
     let existing = seen(#"{"five_hour": {"used_percentage": 40, "resets_at": 1792000000}}"#)
-    // Another session, behind this one, genuinely reports a lower number for the same window.
-    let lower = try stored(merge(existing, statusLine(#"{"five_hour": {"used_percentage": 20, "resets_at": 1792000010}}"#, apiMs: 2000), at: later))
-    #expect(lower.limits["five_hour"] == ["used_percentage": 40, "resets_at": 1_792_000_000, "received_at": 1_791_990_600])
-    let higher = try stored(merge(existing, statusLine(#"{"five_hour": {"used_percentage": 55, "resets_at": 1792000000}}"#, apiMs: 2000), at: later))
-    #expect(higher.limits["five_hour"]?["used_percentage"] == 55)
-}
-
-@Test func mergeTakesANewWindowAndIgnoresAnOlderOne() throws {
-    let existing = seen(#"{"five_hour": {"used_percentage": 90, "resets_at": 1792000000}}"#)
-    let newer = try stored(merge(existing, statusLine(#"{"five_hour": {"used_percentage": 3, "resets_at": 1792018000}}"#, apiMs: 2000), at: later))
-    #expect(newer.limits["five_hour"] == ["used_percentage": 3, "resets_at": 1_792_018_000, "received_at": 1_791_990_600])
-    // An older window leaves the entry and its time alone; only the session's baseline moves.
-    let older = try stored(merge(existing, statusLine(#"{"five_hour": {"used_percentage": 99, "resets_at": 1791982000}}"#, apiMs: 2000), at: later))
-    #expect(older.limits["five_hour"] == ["used_percentage": 90, "resets_at": 1_792_000_000, "received_at": 1_791_990_000])
+    func five(_ input: String) throws -> [String: Double]? {
+        try stored(merge(existing, statusLine(input, apiMs: 2000), at: later)).limits["five_hour"]
+    }
+    #expect(try five(#"{"five_hour": {"used_percentage": 20, "resets_at": 1792000010}}"#)
+        == ["used_percentage": 20, "resets_at": 1_792_000_010, "received_at": 1_791_990_600])
+    #expect(try five(#"{"five_hour": {"used_percentage": 99, "resets_at": 1791982000}}"#)
+        == ["used_percentage": 99, "resets_at": 1_791_982_000, "received_at": 1_791_990_600])
+    #expect(try five(#"{"five_hour": {"used_percentage": 3, "resets_at": 1792018000}}"#)
+        == ["used_percentage": 3, "resets_at": 1_792_018_000, "received_at": 1_791_990_600])
+    // Without a reset time too: the stored reset time goes with the old entry.
+    #expect(try five(#"{"five_hour": {"used_percentage": 90}}"#) == ["used_percentage": 90, "received_at": 1_791_990_600])
 }
 
 @Test func mergeTreatsACorruptFileAsNone() throws {
@@ -308,33 +323,4 @@ private func seen(_ rateLimits: String = "{}", apiMs: Int = 1000) -> Data {
         #expect(file.limits.isEmpty)
         #expect(file.sessions[key("s")]?["api_ms"] == 2000)
     }
-}
-
-@Test func mergeComparesWindowsWithinTwoMinutes() throws {
-    // 1792000049 and 1792000050 are 1 s apart across :30 (1792000020 + 30), so minute rounding would split them; they are one window.
-    let existing = seen(#"{"five_hour": {"used_percentage": 40, "resets_at": 1792000049}}"#)
-    func five(_ input: String) throws -> [String: Double]? {
-        try stored(merge(existing, statusLine(input, apiMs: 2000), at: later)).limits["five_hour"]
-    }
-    #expect(try five(#"{"five_hour": {"used_percentage": 20, "resets_at": 1792000050}}"#)?["used_percentage"] == 40)
-    // 119 s later is still the same window; 120 s later is a new one.
-    #expect(try five(#"{"five_hour": {"used_percentage": 20, "resets_at": 1792000168}}"#)?["used_percentage"] == 40)
-    #expect(try five(#"{"five_hour": {"used_percentage": 20, "resets_at": 1792000169}}"#)?["resets_at"] == 1_792_000_169)
-    // 119 s earlier is the same window; 120 s earlier is an older one, left alone.
-    #expect(try five(#"{"five_hour": {"used_percentage": 60, "resets_at": 1791999930}}"#)?["used_percentage"] == 60)
-    #expect(try five(#"{"five_hour": {"used_percentage": 60, "resets_at": 1791999929}}"#)?["received_at"] == 1_791_990_000)
-}
-
-@Test func mergeTreatsAMissingResetTimeAsAnUnknownWindow() throws {
-    let unknown = seen(#"{"five_hour": {"used_percentage": 40}}"#)
-    // Incoming has a reset time, stored does not: the incoming entry whole.
-    let taken = try stored(merge(unknown, statusLine(#"{"five_hour": {"used_percentage": 10, "resets_at": 1792000000}}"#, apiMs: 2000), at: later))
-    #expect(taken.limits["five_hour"] == ["used_percentage": 10, "resets_at": 1_792_000_000, "received_at": 1_791_990_600])
-    // Neither has one: newest wins.
-    let newest = try stored(merge(unknown, statusLine(#"{"five_hour": {"used_percentage": 10}}"#, apiMs: 2000), at: later))
-    #expect(newest.limits["five_hour"] == ["used_percentage": 10, "received_at": 1_791_990_600])
-    // Incoming lacks one, stored has one: stored stays.
-    let known = seen(#"{"five_hour": {"used_percentage": 40, "resets_at": 1792000000}}"#)
-    let kept = try stored(merge(known, statusLine(#"{"five_hour": {"used_percentage": 90}}"#, apiMs: 2000), at: later))
-    #expect(kept.limits["five_hour"]?["received_at"] == 1_791_990_000)
 }

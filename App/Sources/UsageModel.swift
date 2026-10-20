@@ -395,13 +395,16 @@ final class UsageModel {
     }
 
     /// Writes `last.json` (IDs, limits and a time; owner-only) when the limits changed, otherwise at most once a minute,
-    /// since live numbers republish on every status line refresh.
+    /// since live numbers republish on every status line refresh. Feed-only numbers keep the saved report's extra rows.
     private func save(_ shown: Snapshot, at time: Date) {
         guard let account = state.account else { return }
-        if let lastSaved, lastSaved.account == account, lastSaved.report == shown.report, time.timeIntervalSince(lastSaved.at) < 60 { return }
+        let saved = lastSaved.flatMap { $0.account == account ? $0 : nil }
+        let report = SavedSnapshot.report(toSave: shown.report, feedOnly: sources.api == nil, saved: saved?.report)
+        if let saved, saved.report == report, time.timeIntervalSince(saved.at) < 60 { return }
+        let snapshot = Snapshot(profile: shown.profile, plan: shown.plan, report: report, fetchedAt: shown.fetchedAt, source: shown.source)
         GondarFolder.create()
-        if GondarFolder.writeAtomically(SavedSnapshot.encode(snapshot: shown, accountKey: account), to: GondarFolder.lastURL) {
-            lastSaved = (account, shown.report, time)
+        if GondarFolder.writeAtomically(SavedSnapshot.encode(snapshot: snapshot, accountKey: account), to: GondarFolder.lastURL) {
+            lastSaved = (account, report, time)
         } else {
             Self.logger.error("Couldn't save the last numbers")
         }

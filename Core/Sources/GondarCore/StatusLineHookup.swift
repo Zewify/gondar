@@ -47,3 +47,11 @@ public enum StatusLineHookup: Sendable, Equatable {
         return first == "gondar-feed" || first.hasSuffix("/gondar-feed")
     }
 }
+
+extension StatusLineHookup {
+    /// What the hookup item says once connected: when a session last genuinely reported, from the feed file.
+    public static func connectedStatus(lastReport: Date?, now: Date) -> String {
+        guard let lastReport else { return "Connected — no report yet; it appears after Claude Code's next response" }
+        return "Connected — last report " + UpdatedText.age(fetchedAt: lastReport, now: now)
+    }
+}

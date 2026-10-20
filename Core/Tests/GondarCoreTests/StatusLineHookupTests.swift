@@ -40,3 +40,16 @@ private func settings(_ json: String) -> Data { Data(json.utf8) }
         #expect(hookup == .add(command: #""/Applications/Gondar.app/Contents/MacOS/gondar-feed""#))
     }
 }
+
+@Test func connectedStatusSaysWhenTheLastReportArrived() throws {
+    let now = Date(timeIntervalSince1970: 1_791_990_000)
+    #expect(StatusLineHookup.connectedStatus(lastReport: now - 120, now: now) == "Connected — last report 2 min ago")
+    #expect(StatusLineHookup.connectedStatus(lastReport: nil, now: now)
+        == "Connected — no report yet; it appears after Claude Code's next response")
+    let feed = FeedSnapshot(entries: [
+        FeedEntry(limit: UsageLimit(kind: .session, scopeName: nil, percent: 1, severity: .normal, resetsAt: nil, isActive: true, shareOfWeekly: nil), receivedAt: now - 300),
+        FeedEntry(limit: UsageLimit(kind: .weeklyAll, scopeName: nil, percent: 1, severity: .normal, resetsAt: nil, isActive: true, shareOfWeekly: nil, position: 1), receivedAt: now - 60),
+    ])
+    #expect(feed.lastReport == now - 60)
+    #expect(try StatusLineFeed.parse(Data(#"{"rate_limits": {}, "sessions": {"h": {"api_ms": 1, "seen_at": 1}}}"#.utf8)).lastReport == nil)
+}
