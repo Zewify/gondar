@@ -82,7 +82,12 @@ import Testing
 @Test func decoupledTimingsHaveTheirOwnValues() {
     #expect(PollSchedule.interval == .seconds(300))
     #expect(PollSchedule.backoffBase == .seconds(120))
-    #expect(PollSchedule.staleBackstop == .seconds(300))
+    #expect(PollSchedule.staleBackstop == .seconds(360))
     #expect(PollSchedule.tokenRecheck == .seconds(120))
-    #expect(Display.staleAfter == .seconds(300))
+    #expect(Display.staleAfter == .seconds(360))
+}
+
+/// The backstop must outlast the regular check, or numbers flash stale just before each answer.
+@Test func staleBackstopOutlastsTheRegularInterval() {
+    #expect(PollSchedule.staleBackstop > PollSchedule.interval)
 }

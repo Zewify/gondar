@@ -8,7 +8,8 @@ public struct PollSchedule: Sendable, Equatable {
     /// Its own constant, not derived from `interval`, so the retries stay fast (decided 2026-10-20).
     public static let backoffBase: Duration = .seconds(120)
     /// How long numbers may go unreplaced before they are shown as stale with no failure to name.
-    public static let staleBackstop: Duration = .seconds(300)
+    /// Must stay longer than `interval`, or the numbers flash stale just before each regular check answers.
+    public static let staleBackstop: Duration = .seconds(360)
     /// How often the Keychain is read again while there is no usable token (none, unreadable, expired, refused).
     /// Local only: the API is asked again only once the token's fingerprint changes.
     public static let tokenRecheck: Duration = .seconds(120)
