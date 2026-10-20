@@ -14,6 +14,7 @@ Plan: `docs/superpowers/plans/2026-10-20-gondar-app.md`.
 - `./scripts/test.sh` — core tests, then an app build. Run before every commit; the exit code is the verdict.
 - `./scripts/build.sh [Debug|Release]` — generates the project and builds; prints the app path.
 - `./scripts/install-local.sh` — a Release build copied to `/Applications` and launched.
+- `open -n build/DerivedData/Build/Products/Debug/Gondar.app --args -GondarDemo stale` — a Debug build with made-up stale numbers and no network, opening the pop-out; it saves no window frame or flags, since it shares the installed app's defaults. Compiled out of Release.
 - `./scripts/make-icon.sh` — re-renders AppIcon.appiconset from the mark in `App/Sources/GaugeMark.swift`; edit that file, not the PNGs.
 - `project.yml` is the XcodeGen spec; the `.xcodeproj` is generated and gitignored, so never edit or commit it.
 

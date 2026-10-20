@@ -55,6 +55,13 @@ final class UsageModel {
 
     func start() {
         guard ticker == nil else { return }
+        #if DEBUG
+        // A Debug-only demo: fixed numbers, never a poll (`poll` refuses too), so the countdowns stand still.
+        if DemoMode.isEnabled {
+            if let demo = DemoMode.state(now: now) { state = demo }
+            return
+        }
+        #endif
         // A restored attempt under a minute old keeps Refresh disabled until the minute is up.
         updateCanRefresh()
         ticker = Task { [weak self] in
@@ -105,6 +112,9 @@ final class UsageModel {
     /// `afterAccountChange` is the one bypass of both: a switch must show within seconds.
     private func poll(afterAccountChange: Bool = false) {
         guard !isAsleep else { return }
+        #if DEBUG
+        guard !DemoMode.isEnabled else { return }
+        #endif
         if afterAccountChange {
             pollTask?.cancel()
             pollTask = nil

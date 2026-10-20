@@ -131,7 +131,8 @@ The text turns amber when the session's `severity` is not `normal`, or at 80 % i
 Builder's call: amber when `severity` is anything but `normal`, or when the percentage is 80 or more.
 That rule is the menu bar's own; the rows colour their percentages by level instead (see the panel).
 When there is no usable data, the mark shows alone with a dash.
-A stale number is drawn muted, whatever its percentage, so it never looks current.
+A stale number in the menu bar is drawn muted, whatever its percentage, so it never looks current.
+That rule is the menu bar's alone: rows in the panel and the floating window keep their level colours when stale, and the stale reason beside them says they are old.
 
 ### The panel
 

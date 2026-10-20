@@ -116,6 +116,13 @@ private func utc(_ text: String) -> Date {
     #expect(StaleText.text(.unauthorized, fetchedAt: now - 7300, now: now) == "Login refused · 2 h ago")
 }
 
+/// The strip's tooltip and VoiceOver label: the full reason, then how old the numbers are.
+@Test func staleDetail() {
+    let now = Date(timeIntervalSince1970: 1_000_000)
+    #expect(StaleText.detail(.rateLimited, fetchedAt: now - 2 * 60, now: now) == "Asked too often. Trying again shortly. Updated 2 min ago.")
+    #expect(StaleText.detail(.offline, fetchedAt: now - 10, now: now) == "Offline. Updated just now.")
+}
+
 @Test func moneyText() {
     let text = MoneyText.text(Money(minor: 1234, currency: "USD", exponent: 2), locale: english)
     #expect(text == "$12.34")

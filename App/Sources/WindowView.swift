@@ -43,14 +43,14 @@ struct WindowView: View {
     /// The traffic lights sit over the leading 78 points; the title ignores clicks so the drag handle gets them,
     /// which is also why the stale reason's tooltip is the drag handle's own rather than a SwiftUI `.help`.
     private var titleStrip: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 0) {
             Text("Gondar")
                 .font(Theme.title(15))
                 .tracking(-0.5)
                 .foregroundStyle(Theme.text)
                 .lineLimit(1)
                 .fixedSize()
-            Spacer(minLength: 0)
+            Spacer(minLength: 8)
             if case .stale(let snapshot, let problem) = model.display {
                 staleStatus(snapshot, problem)
             }
@@ -71,13 +71,13 @@ struct WindowView: View {
         }
         .font(Theme.body(12, .medium))
         .foregroundStyle(Theme.amber)
-        .accessibilityLabel(Text(verbatim: problem.message + " " + UpdatedText.text(fetchedAt: snapshot.fetchedAt, now: model.now) + "."))
+        .accessibilityLabel(Text(verbatim: StaleText.detail(problem, fetchedAt: snapshot.fetchedAt, now: model.now)))
     }
 
     /// The full reason and the age, shown when the pointer rests on the strip while the numbers are stale.
     private var staleToolTip: String? {
         guard case .stale(let snapshot, let problem) = model.display else { return nil }
-        return problem.message + " " + UpdatedText.text(fetchedAt: snapshot.fetchedAt, now: model.now) + "."
+        return StaleText.detail(problem, fetchedAt: snapshot.fetchedAt, now: model.now)
     }
 
     @ViewBuilder private var content: some View {

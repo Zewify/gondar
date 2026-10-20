@@ -107,6 +107,11 @@ public enum StaleText {
     public static func text(_ problem: Problem, fetchedAt: Date, now: Date) -> String {
         "\(problem.shortLabel) · \(UpdatedText.age(fetchedAt: fetchedAt, now: now))"
     }
+
+    /// The strip's tooltip and VoiceOver label: "Asked too often. Trying again shortly. Updated 2 min ago."
+    public static func detail(_ problem: Problem, fetchedAt: Date, now: Date) -> String {
+        "\(problem.message) \(UpdatedText.text(fetchedAt: fetchedAt, now: now))."
+    }
 }
 
 public enum MoneyText {

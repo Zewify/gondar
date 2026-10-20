@@ -26,21 +26,25 @@ final class FloatingWindowController: NSObject, NSWindowDelegate {
     /// until then the first numbers to arrive fit it, even across launches.
     static let fittedKey = "floatingWindowFitted"
     private var isFitted: Bool {
-        get { UserDefaults.standard.bool(forKey: Self.fittedKey) }
-        set { UserDefaults.standard.set(newValue, forKey: Self.fittedKey) }
+        get { persists ? UserDefaults.standard.bool(forKey: Self.fittedKey) : fittedInMemory }
+        set { if persists { UserDefaults.standard.set(newValue, forKey: Self.fittedKey) } else { fittedInMemory = newValue } }
     }
+    /// False for the Debug demo, which shares the installed app's defaults: it saves no frame and no flags.
+    private let persists: Bool
+    private var fittedInMemory = false
     /// True while the controller places the window itself, so its own moves are not taken for the person's.
     private var isPlacing = false
 
-    init(model: UsageModel, content: @escaping @MainActor () -> AnyView) {
+    init(model: UsageModel, persists: Bool = true, content: @escaping @MainActor () -> AnyView) {
         self.model = model
+        self.persists = persists
         self.content = content
     }
 
     /// Opens the window, or brings the open one forward; there is never more than one.
     /// `activate` is false when it reopens at launch, so it appears without taking focus from what the person is doing.
     func show(activate: Bool = true) {
-        UserDefaults.standard.set(true, forKey: Self.openKey)
+        if persists { UserDefaults.standard.set(true, forKey: Self.openKey) }
         if let window {
             if window.isMiniaturized { window.deminiaturize(nil) }
             window.orderFrontRegardless()
@@ -73,8 +77,12 @@ final class FloatingWindowController: NSObject, NSWindowDelegate {
         isPlacing = true
         // Reopens where it was left; the very first time, it is centred at the default size.
         // Until it is fitted (contentFit), the first numbers to arrive fit it to its rows.
-        if !window.setFrameUsingName(Self.autosaveName) { window.center() }
-        window.setFrameAutosaveName(Self.autosaveName)
+        if persists {
+            if !window.setFrameUsingName(Self.autosaveName) { window.center() }
+            window.setFrameAutosaveName(Self.autosaveName)
+        } else {
+            window.center()
+        }
         self.window = window
         model.viewerAppeared()
         if activate {
@@ -161,7 +169,7 @@ final class FloatingWindowController: NSObject, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
-        if !isQuitting { UserDefaults.standard.set(false, forKey: Self.openKey) }
+        if persists, !isQuitting { UserDefaults.standard.set(false, forKey: Self.openKey) }
         window = nil
     }
 }

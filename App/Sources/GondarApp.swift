@@ -25,14 +25,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let model = UsageModel()
     let loginItem = LoginItem()
     let updates = UpdateChecker()
-    lazy var floatingWindow: FloatingWindowController = FloatingWindowController(model: model) { [unowned self] in
+    lazy var floatingWindow: FloatingWindowController = FloatingWindowController(model: model, persists: !Self.isDemo) { [unowned self] in
         AnyView(WindowView(model: model) { [unowned self] content, viewport in
             floatingWindow.contentFit(content: content, viewport: viewport)
         })
     }
 
+    /// The Debug-only demo (`-GondarDemo stale`), which runs beside the installed app under the same bundle ID and defaults.
+    private static var isDemo: Bool {
+        #if DEBUG
+        DemoMode.isEnabled
+        #else
+        false
+        #endif
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         model.start()
+        // The demo opens its window at once and touches nothing shared: no update check, no login item, no saved state.
+        if Self.isDemo {
+            floatingWindow.show()
+            return
+        }
         updates.start()
         loginItem.enableOnFirstLaunch()
         // It was open when the app last quit: put it back where it was, without taking focus.
