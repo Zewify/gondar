@@ -40,15 +40,19 @@ public struct UsageLimit: Sendable, Equatable, Identifiable {
     public let resetsAt: Date?
     public let isActive: Bool
     public let shareOfWeekly: Int?
+    /// The entry's position in the response's own list, counting entries that could not be read.
+    public let position: Int
 
-    /// Stable identity for SwiftUI: the kind, plus the scope when there is one.
+    /// Identity for SwiftUI: the position, so two entries alike never collide, then the kind and any scope,
+    /// so identical responses give identical ids.
     public var id: String {
-        scopeName.map { "\(kind.raw):\($0)" } ?? kind.raw
+        let base = scopeName.map { "\(kind.raw):\($0)" } ?? kind.raw
+        return "\(position):\(base)"
     }
 
     public init(
         kind: LimitKind, scopeName: String?, percent: Int, severity: Severity,
-        resetsAt: Date?, isActive: Bool, shareOfWeekly: Int?
+        resetsAt: Date?, isActive: Bool, shareOfWeekly: Int?, position: Int = 0
     ) {
         self.kind = kind
         self.scopeName = scopeName
@@ -57,6 +61,7 @@ public struct UsageLimit: Sendable, Equatable, Identifiable {
         self.resetsAt = resetsAt
         self.isActive = isActive
         self.shareOfWeekly = shareOfWeekly
+        self.position = position
     }
 }
 
@@ -114,8 +119,13 @@ public enum OAuthUsageParser {
                 severity: Severity(raw: limit.severity),
                 resetsAt: limit.resetsAt,
                 isActive: limit.isActive,
-                shareOfWeekly: shares[index]
+                shareOfWeekly: shares[index],
+                position: index
             )
+        }
+        // Entries that are all unreadable mean the format changed: an error, never an empty panel.
+        if limits.isEmpty, !wire.limits.isEmpty {
+            throw ParseError("No usage limit in the response could be read")
         }
         let extra: ExtraUsage? = wire.spend.flatMap { spend in
             guard spend.enabled else { return nil }
@@ -177,10 +187,16 @@ private struct WireLimit: Decodable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         kind = try container.decode(String.self, forKey: .kind)
-        percent = try container.decode(Int.self, forKey: .percent)
+        // Measured as whole numbers; a fraction is rounded rather than dropping the entry. A whole number still decodes.
+        let rawPercent = try container.decode(Double.self, forKey: .percent)
+        guard rawPercent.isFinite, abs(rawPercent) < 1_000_000 else {
+            throw DecodingError.dataCorruptedError(forKey: .percent, in: container, debugDescription: "Not a usable percentage")
+        }
+        percent = Int(rawPercent.rounded())
         severity = try container.decode(String.self, forKey: .severity)
         scope = try container.decodeIfPresent(Scope.self, forKey: .scope)
-        isActive = try container.decode(Bool.self, forKey: .isActive)
+        // Missing means active: the bar is drawn muted only when the source says the limit is inactive.
+        isActive = try container.decodeIfPresent(Bool.self, forKey: .isActive) ?? true
         if let text = try container.decodeIfPresent(String.self, forKey: .resetsAt) {
             // Both the fractional-second and whole-second forms parse with this style on macOS 14+.
             let parsed = try Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse(text)

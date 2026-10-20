@@ -12,7 +12,7 @@ import Testing
     #expect(report.limits[0].isActive && !report.limits[1].isActive)
     #expect(report.limits[0].resetsAt == (try iso("2026-10-20T03:20:00Z")))
     #expect(report.limits[2].resetsAt == (try iso("2026-10-26T00:00:00Z")))
-    #expect(report.limits.map(\.id) == ["session", "weekly_all", "weekly_scoped:Fable"])
+    #expect(report.limits.map(\.id) == ["0:session", "1:weekly_all", "2:weekly_scoped:Fable"])
     #expect(report.extra == ExtraUsage(used: Money(minor: 0, currency: "USD", exponent: 2), limit: Money(minor: 0, currency: "USD", exponent: 2)))
 }
 
@@ -64,4 +64,50 @@ import Testing
     """
     let report = try OAuthUsageParser.parse(Data(json.utf8))
     #expect(report.extra == nil)
+}
+
+/// A fractional percentage must not empty the panel: it is rounded to the nearest whole number.
+@Test func roundsAFractionalPercent() throws {
+    let json = """
+    {"limits":[
+      {"kind":"session","percent":12.5,"severity":"normal","resets_at":null,"scope":null,"is_active":true},
+      {"kind":"weekly_all","percent":7.4,"severity":"normal","resets_at":null,"scope":null,"is_active":true},
+      {"kind":"weekly_scoped","percent":3,"severity":"normal","resets_at":null,"scope":null,"is_active":true}
+    ]}
+    """
+    let report = try OAuthUsageParser.parse(Data(json.utf8))
+    #expect(report.limits.map(\.percent) == [13, 7, 3])
+}
+
+@Test func missingIsActiveCountsAsActive() throws {
+    let json = #"{"limits":[{"kind":"session","percent":4,"severity":"normal","resets_at":null,"scope":null}]}"#
+    let report = try OAuthUsageParser.parse(Data(json.utf8))
+    #expect(report.limits.count == 1)
+    #expect(report.limits[0].isActive)
+}
+
+/// Entries that are all unreadable mean the format changed; that must show as an error, not as an empty panel.
+@Test func throwsWhenNoEntryCanBeRead() {
+    let json = #"{"limits":[{"kind":"session","percent":"lots","severity":"normal"},{"percent":1}]}"#
+    #expect(throws: ParseError.self) { try OAuthUsageParser.parse(Data(json.utf8)) }
+}
+
+@Test func anEmptyListIsNotAnError() throws {
+    #expect(try OAuthUsageParser.parse(Data(#"{"limits":[]}"#.utf8)).limits.isEmpty)
+}
+
+/// Two entries with the same kind and scope, or two unknown kinds alike, still get distinct ids;
+/// the same response gives the same ids every time.
+@Test func idsAreUniqueAndStable() throws {
+    let json = """
+    {"limits":[
+      {"kind":"weekly_scoped","percent":1,"severity":"normal","resets_at":null,"scope":{"model":{"display_name":"Fable"}},"is_active":true},
+      {"kind":"weekly_scoped","percent":2,"severity":"normal","resets_at":null,"scope":{"model":{"display_name":"Fable"}},"is_active":true},
+      {"kind":"mystery","percent":3,"severity":"normal","resets_at":null,"scope":null,"is_active":true},
+      {"kind":"mystery","percent":4,"severity":"normal","resets_at":null,"scope":null,"is_active":true}
+    ]}
+    """
+    let ids = try OAuthUsageParser.parse(Data(json.utf8)).limits.map(\.id)
+    #expect(Set(ids).count == 4)
+    #expect(try OAuthUsageParser.parse(Data(json.utf8)).limits.map(\.id) == ids)
 }
