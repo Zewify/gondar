@@ -247,3 +247,32 @@ private let later = Date(timeIntervalSince1970: 1_791_990_600)
     let fresh = try stored(StatusLineFeed.mergeStored(existing: nil, incoming: incoming, receivedAt: later))
     #expect(fresh.limits.keys.sorted() == ["five_hour"])
 }
+
+@Test func mergeComparesWindowsWithinTwoMinutes() throws {
+    // 1792000049 and 1792000050 are 1 s apart across :30 (1792000020 + 30), so minute rounding would split them; they are one window.
+    let existing = feedJSON(#"{"five_hour": {"used_percentage": 40, "resets_at": 1792000049}}"#)
+    let straddling = try stored(StatusLineFeed.mergeStored(existing: existing, incoming: statusLine(#"{"five_hour": {"used_percentage": 20, "resets_at": 1792000050}}"#), receivedAt: later))
+    #expect(straddling.limits["five_hour"] == ["used_percentage": 40, "resets_at": 1_792_000_049])
+    // 119 s later is still the same window; 120 s later is a new one.
+    let near = try stored(StatusLineFeed.mergeStored(existing: existing, incoming: statusLine(#"{"five_hour": {"used_percentage": 20, "resets_at": 1792000168}}"#), receivedAt: later))
+    #expect(near.limits["five_hour"]?["used_percentage"] == 40)
+    let next = try stored(StatusLineFeed.mergeStored(existing: existing, incoming: statusLine(#"{"five_hour": {"used_percentage": 20, "resets_at": 1792000169}}"#), receivedAt: later))
+    #expect(next.limits["five_hour"] == ["used_percentage": 20, "resets_at": 1_792_000_169])
+    // 119 s earlier is the same window; 120 s earlier is an older one, which writes nothing.
+    let before = try stored(StatusLineFeed.mergeStored(existing: existing, incoming: statusLine(#"{"five_hour": {"used_percentage": 60, "resets_at": 1791999930}}"#), receivedAt: later))
+    #expect(before.limits["five_hour"]?["used_percentage"] == 60)
+    #expect(StatusLineFeed.mergeStored(existing: existing, incoming: statusLine(#"{"five_hour": {"used_percentage": 60, "resets_at": 1791999929}}"#), receivedAt: later) == nil)
+}
+
+@Test func mergeTreatsAMissingResetTimeAsAnUnknownWindow() throws {
+    let known = feedJSON(#"{"five_hour": {"used_percentage": 40, "resets_at": 1792000000}}"#)
+    let unknown = feedJSON(#"{"five_hour": {"used_percentage": 40}}"#)
+    // Incoming has a reset time, stored does not: the incoming entry whole.
+    let taken = try stored(StatusLineFeed.mergeStored(existing: unknown, incoming: statusLine(#"{"five_hour": {"used_percentage": 10, "resets_at": 1792000000}}"#), receivedAt: later))
+    #expect(taken.limits["five_hour"] == ["used_percentage": 10, "resets_at": 1_792_000_000])
+    // Neither has one: newest wins.
+    let newest = try stored(StatusLineFeed.mergeStored(existing: unknown, incoming: statusLine(#"{"five_hour": {"used_percentage": 10}}"#), receivedAt: later))
+    #expect(newest.limits["five_hour"] == ["used_percentage": 10])
+    // Incoming lacks one, stored has one: stored stays, nothing written.
+    #expect(StatusLineFeed.mergeStored(existing: known, incoming: statusLine(#"{"five_hour": {"used_percentage": 90}}"#), receivedAt: later) == nil)
+}

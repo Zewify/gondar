@@ -52,6 +52,21 @@ printf '{}' | "$feed" true
 [[ -e "$support/Gondar/.statusline.json.99998.tmp" ]] || fail "a fresh temp file was removed"
 rm -f "$support/Gondar/.statusline.json.99998.tmp"
 
+# A held lock (a writer stopped by Ctrl-Z) delays the wrapped command by at most about 100 ms and skips the write.
+lock="$support/Gondar/statusline.lock"
+before="$(cat "$file")"
+perl -e 'use Fcntl ":flock"; open F, ">>", $ARGV[0]; flock F, LOCK_EX; $| = 1; print "held\n"; sleep 5' "$lock" > "$home/held" &
+holder=$!
+until [[ -s "$home/held" ]]; do perl -e 'select undef, undef, undef, 0.01'; done
+start=$(perl -MTime::HiRes=time -e 'printf "%d", time * 1000')
+out="$(printf '{"rate_limits":{"five_hour":{"used_percentage":99,"resets_at":1790036000}}}' | "$feed" echo ran)"
+end=$(perl -MTime::HiRes=time -e 'printf "%d", time * 1000')
+kill "$holder"; wait "$holder" 2>/dev/null || true
+[[ "$out" == ran ]] || fail "held lock: wrapped command printed '$out'"
+(( end - start < 300 )) || fail "held lock: took $((end - start)) ms"
+held_ms=$((end - start))
+[[ "$(cat "$file")" == "$before" ]] || fail "held lock: the file was written anyway"
+
 # A closed stdin still runs the wrapped command.
 out="$("$feed" echo ran <&-)" && status=0 || status=$?
 [[ "$out" == ran && $status == 0 ]] || fail "closed stdin: got '$out', status $status"
@@ -106,4 +121,4 @@ if (( failures > 0 )); then
   echo "test-feed: $failures failure(s)" >&2
   exit 1
 fi
-echo "test-feed: all passed (fastest call ${best} ms)"
+echo "test-feed: all passed (fastest call ${best} ms, ${held_ms} ms past a held lock)"

@@ -30,11 +30,16 @@ public enum StatusLineFeed {
         return try stored(limits(in: object["rate_limits"]), receivedAt: receivedAt)
     }
 
+    /// Reset times closer than this are one window: the same reset reported a little differently.
+    static let sameWindow: TimeInterval = 120
+
     /// The feed file after Claude Code's input `incoming` arrives, or nil when the file should stay as it is.
     /// Several sessions write the one file, and an idle session re-sends its last numbers on every refresh, so it merges per limit:
-    /// in the same window (reset times equal to the minute) the higher number wins, since usage only rises within a window;
+    /// in the same window (reset times under two minutes apart) the higher number wins, since usage only rises within a window;
     /// a later window replaces an earlier one; an earlier window and a limit the input lacks leave the stored entry alone.
-    /// The time moves only when a session reported a stored window or changed an entry. An unreadable `existing` counts as none.
+    /// A missing reset time is an unknown window: an entry with one replaces a stored entry without; one without replaces
+    /// only a stored entry that also lacks one. The time moves only when a session reported a stored window or changed an entry.
+    /// An unreadable `existing` counts as none.
     public static func mergeStored(existing: Data?, incoming: Data, receivedAt: Date) -> Data? {
         guard let input = try? JSONSerialization.jsonObject(with: incoming) as? [String: Any] else { return nil }
         let reported = limits(in: input["rate_limits"])
@@ -43,25 +48,25 @@ public enum StatusLineFeed {
         var merged = limits(in: old?["rate_limits"])
         var fresh = false
         for (key, new) in reported {
-            guard let current = merged[key] else {
+            let current = merged[key]
+            switch (new["resets_at"].map(seconds), current?["resets_at"].map(seconds)) {
+            case (_, nil):
+                // Nothing stored, or the stored window is unknown: the reported entry whole.
                 merged[key] = new
                 fresh = true
+            case (nil, .some):
                 continue
-            }
-            let (newReset, oldReset) = (new["resets_at"].map(minute), current["resets_at"].map(minute))
-            if let newReset, let oldReset, newReset != oldReset {
-                if newReset > oldReset {
+            case let (newReset?, oldReset?):
+                if abs(newReset - oldReset) < sameWindow {
+                    fresh = true
+                    if let used = new["used_percentage"], used > current?["used_percentage"] ?? -.infinity {
+                        merged[key]?["used_percentage"] = used
+                    }
+                } else if newReset > oldReset {
                     merged[key] = new
                     fresh = true
                 }
-                continue
             }
-            // The same window, or one whose reset time is unknown on a side: keep the higher number and any reset time.
-            fresh = true
-            var kept = current
-            if let used = new["used_percentage"], used > current["used_percentage"] ?? -.infinity { kept["used_percentage"] = used }
-            if kept["resets_at"] == nil { kept["resets_at"] = new["resets_at"] }
-            merged[key] = kept
         }
         guard fresh else { return nil }
         return try? stored(merged, receivedAt: receivedAt)
@@ -90,9 +95,9 @@ public enum StatusLineFeed {
         return try JSONSerialization.data(withJSONObject: output, options: [.sortedKeys])
     }
 
-    /// Unix seconds (or milliseconds) as whole minutes, for comparing windows.
-    private static func minute(_ value: Double) -> Double {
-        ((value > 1e11 ? value / 1000 : value) / 60).rounded()
+    /// Unix seconds, given seconds or milliseconds.
+    private static func seconds(_ value: Double) -> Double {
+        value > 1e11 ? value / 1000 : value
     }
 
     /// Reads the file `extract` wrote. A missing or null `rate_limits` is an empty feed; a limit that cannot be read is skipped.

@@ -24,10 +24,16 @@ func save(_ input: Data) {
     removeStaleTempFiles(in: folder)
 
     // Sessions run this at once; the lock makes each read-merge-write see the one before it.
-    // It is released when the descriptor closes, or when the process dies.
+    // It is released when the descriptor closes, or when the process dies. A holder that is stopped
+    // (Ctrl-Z) or stuck on a slow disk must not hang every status line, so after 100 ms this write is skipped.
     let lock = open(folder + "/statusline.lock", O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0o600)
-    defer { if lock >= 0 { close(lock) } }
-    if lock >= 0 { flock(lock, LOCK_EX) }
+    guard lock >= 0 else { return }
+    defer { close(lock) }
+    let deadline = DispatchTime.now().uptimeNanoseconds + 100_000_000
+    while flock(lock, LOCK_EX | LOCK_NB) != 0 {
+        guard errno == EWOULDBLOCK || errno == EINTR, DispatchTime.now().uptimeNanoseconds < deadline else { return }
+        usleep(5_000)
+    }
 
     let existing = FileManager.default.contents(atPath: path)
     guard let feed = StatusLineFeed.mergeStored(existing: existing, incoming: input, receivedAt: Date()) else { return }
