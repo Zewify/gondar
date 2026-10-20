@@ -90,6 +90,8 @@ private func snap(account: String, org: String = "org") -> Snapshot {
     #expect(Problem.offline.message == "Offline.")
     #expect(Problem.unreadableResponse.message == "Anthropic changed the usage format. An update is needed.")
     #expect(Problem.keychainUnreadable.message == "Couldn't read Claude Code's login from the Keychain.")
+    #expect(Problem.accountSwitchPending.message == "Waiting for Claude Code to finish switching accounts.")
+    #expect(Problem.notUpdating.message == "Not updated for several minutes.")
 }
 
 @Test func switchingAwayFromStaleDropsOldNumbers() {

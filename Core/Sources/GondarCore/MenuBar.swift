@@ -10,6 +10,18 @@ public enum MenuBarTone: Sendable, Equatable {
 }
 
 extension Display {
+    /// How old a current snapshot may get before it is shown as stale: two missed polls and a minute.
+    public static let staleAfter: Duration = PollSchedule.interval * 2 + .seconds(60)
+
+    /// What to show at `now`: a ready snapshot older than `staleAfter` is stale, even with no failure to name,
+    /// so numbers that stopped updating for any reason never look current. Used by the menu bar and the panel header.
+    public func presented(now: Date) -> Display {
+        guard case .ready(let snapshot) = self,
+              now.timeIntervalSince(snapshot.fetchedAt) > Double(Self.staleAfter.components.seconds)
+        else { return self }
+        return .stale(snapshot, .notUpdating)
+    }
+
     /// The numbers being shown, current or kept from an earlier poll.
     public var snapshot: Snapshot? {
         switch self {

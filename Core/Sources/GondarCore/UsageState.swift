@@ -22,6 +22,10 @@ public struct Snapshot: Sendable, Equatable {
 
 public enum Problem: Sendable, Equatable {
     case claudeCodeNotSignedIn, keychainUnreadable, tokenExpired, unauthorized, rateLimited, offline, unreadableResponse
+    /// The token and `~/.claude.json` have named different accounts three polls in a row.
+    case accountSwitchPending
+    /// Shown numbers that no poll has replaced for longer than `Display.staleAfter`, with no failure to name.
+    case notUpdating
 
     public var message: String {
         switch self {
@@ -32,6 +36,8 @@ public enum Problem: Sendable, Equatable {
         case .rateLimited: "Asked too often. Trying again shortly."
         case .offline: "Offline."
         case .unreadableResponse: "Anthropic changed the usage format. An update is needed."
+        case .accountSwitchPending: "Waiting for Claude Code to finish switching accounts."
+        case .notUpdating: "Not updated for several minutes."
         }
     }
 }
@@ -88,5 +94,25 @@ public struct UsageState: Sendable, Equatable {
         case .loading, .unavailable:
             display = .unavailable(problem)
         }
+    }
+}
+
+/// Counts polls in a row where the token's profile and `~/.claude.json` name different accounts.
+/// A switch half done is waited out; one that never settles (an organisation switch with the same token, say)
+/// is reported on the third disagreement, so the numbers stop looking current and backoff applies.
+public struct AccountMismatch: Sendable, Equatable {
+    public static let tolerated = 2
+    public private(set) var count = 0
+
+    public init() {}
+
+    /// Records a disagreement; returns true when it should be reported as `.accountSwitchPending`.
+    public mutating func disagreed() -> Bool {
+        count += 1
+        return count > Self.tolerated
+    }
+
+    public mutating func agreed() {
+        count = 0
     }
 }

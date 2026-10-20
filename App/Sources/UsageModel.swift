@@ -18,9 +18,11 @@ final class UsageModel {
     /// Mirrors `PollSchedule.mayPollNow`: false within a minute of the last poll.
     private(set) var canRefresh = true
 
-    var menuBarText: String { state.display.menuBarText }
-    var menuBarTone: MenuBarTone { state.display.menuBarTone }
-    var menuBarAccessibilityLabel: String { state.display.menuBarAccessibilityLabel }
+    /// What the menu bar and the header show: the state, with numbers that stopped updating shown as stale.
+    var display: Display { state.display.presented(now: now) }
+    var menuBarText: String { display.menuBarText }
+    var menuBarTone: MenuBarTone { display.menuBarTone }
+    var menuBarAccessibilityLabel: String { display.menuBarAccessibilityLabel }
 
     @ObservationIgnored private let client = AnthropicClient()
     @ObservationIgnored private var schedule = PollSchedule()
@@ -41,10 +43,13 @@ final class UsageModel {
     @ObservationIgnored private var isAsleep = false
     /// A SHA-256 of the last token checked against the profile endpoint, held in memory only.
     @ObservationIgnored private var tokenFingerprint: SHA256.Digest?
+    /// A SHA-256 of a token Anthropic refused (401). The API is not asked again until Claude Code writes another one.
+    @ObservationIgnored private var refusedToken: SHA256.Digest?
     @ObservationIgnored private var profile: Profile?
     /// The last account `~/.claude.json` named; nil only until the file has been read successfully.
     /// The one place the app tracks it: the watcher reports reads and this decides what is a switch.
     @ObservationIgnored private var localAccount: LocalAccount?
+    @ObservationIgnored private var mismatch = AccountMismatch()
 
     private static let logger = Logger(subsystem: "com.zewify.gondar", category: "usage")
 
@@ -159,6 +164,12 @@ final class UsageModel {
         }
 
         let fingerprint = SHA256.hash(data: Data(credentials.accessToken.utf8))
+        if fingerprint == refusedToken {
+            // Refused before: only a new token from Claude Code can fix that, so read the Keychain each interval and ask nothing.
+            state.failed(.unauthorized)
+            return PollSchedule.interval
+        }
+        refusedToken = nil
         if fingerprint != tokenFingerprint || profile == nil {
             switch await client.profile(token: credentials.accessToken) {
             case .success(let fetched):
@@ -169,17 +180,21 @@ final class UsageModel {
                     guard isCurrent() else { return nil }
                     if let fresh { localAccount = fresh }
                     if let fresh, fresh.key != fetched.accountKey {
-                        // A switch half done: the token and the file name different accounts. Keep what is shown and look again.
+                        // A switch half done: the token and the file name different accounts. Keep what is shown and look again,
+                        // twice; a third disagreement in a row is reported and backs off, so it never looks current or polls every minute.
                         Self.logger.info("The token and the account file disagree; waiting")
-                        return PollSchedule.minimumGap
+                        guard mismatch.disagreed() else { return PollSchedule.minimumGap }
+                        state.failed(.accountSwitchPending)
+                        return schedule.delay(after: .accountSwitchPending, retryAfter: nil)
                     }
                 }
+                mismatch.agreed()
                 tokenFingerprint = fingerprint
                 profile = fetched
                 state.accountChanged(to: fetched.accountKey)
             case .failure(let error):
                 guard isCurrent() else { return nil }
-                return record(error)
+                return record(error, token: fingerprint)
             }
         }
         guard let profileForThisPoll = profile else { return PollSchedule.interval }
@@ -203,15 +218,16 @@ final class UsageModel {
             schedule.failures = 0
             return schedule.nextDelay(retryAfter: nil)
         case .failure(let error):
-            return record(error)
+            return record(error, token: fingerprint)
         }
     }
 
-    private func record(_ error: FetchError) -> Duration {
+    /// A refused token is remembered (as its fingerprint) and not counted as a failure; anything else backs off.
+    private func record(_ error: FetchError, token fingerprint: SHA256.Digest) -> Duration {
         Self.logger.notice("A request failed: \(String(describing: error.problem), privacy: .public)")
         state.failed(error.problem)
-        schedule.failures += 1
-        return schedule.nextDelay(retryAfter: error.retryAfter)
+        if error.problem == .unauthorized { refusedToken = fingerprint }
+        return schedule.delay(after: error.problem, retryAfter: error.retryAfter)
     }
 
     private func schedulePoll(after delay: Duration) {

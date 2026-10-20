@@ -55,3 +55,21 @@ import Testing
     #expect(PollSchedule(failures: 0).pollsWhenViewed)
     #expect(!PollSchedule(failures: 1).pollsWhenViewed)
 }
+
+/// A refused login waits the plain interval and is not counted as a failure: the fix is Claude Code writing a new token.
+@Test func unauthorizedDoesNotEscalate() {
+    var schedule = PollSchedule(failures: 0)
+    let delays = (0..<3).map { _ in schedule.delay(after: .unauthorized, retryAfter: nil) }
+    #expect(delays == [.seconds(120), .seconds(120), .seconds(120)])
+    #expect(schedule.failures == 0)
+}
+
+@Test func otherProblemsCountAsFailures() {
+    var schedule = PollSchedule(failures: 0)
+    let offline = schedule.delay(after: .offline, retryAfter: nil)
+    #expect(offline == .seconds(240) && schedule.failures == 1)
+    let limited = schedule.delay(after: .rateLimited, retryAfter: .seconds(900))
+    #expect(limited == .seconds(900) && schedule.failures == 2)
+    let pending = schedule.delay(after: .accountSwitchPending, retryAfter: nil)
+    #expect(pending == .seconds(960) && schedule.failures == 3)
+}

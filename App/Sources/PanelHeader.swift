@@ -9,7 +9,7 @@ struct PanelHeader: View {
 
     var body: some View {
         Group {
-            switch model.state.display {
+            switch model.display {
             case .loading:
                 ProgressView()
                     .controlSize(.small)

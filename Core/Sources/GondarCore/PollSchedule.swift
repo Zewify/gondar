@@ -19,6 +19,14 @@ public struct PollSchedule: Sendable, Equatable {
         return max(retryAfter ?? .zero, backoff)
     }
 
+    /// The wait after a failed poll, counting it as a failure unless it is `.unauthorized`:
+    /// a refused login is fixed locally, by Claude Code writing a new token, so it waits the plain interval.
+    public mutating func delay(after problem: Problem, retryAfter: Duration?) -> Duration {
+        if problem == .unauthorized { return Self.interval }
+        failures += 1
+        return nextDelay(retryAfter: retryAfter)
+    }
+
     /// Whether opening the panel or the window asks for a poll: not while backing off after a failure,
     /// because the scheduled retry handles that and an extra request would prolong a rate limit.
     public var pollsWhenViewed: Bool { failures == 0 }
