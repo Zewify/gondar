@@ -48,6 +48,23 @@ With no status line yet, the command can be the tool's path alone; it shows noth
 Settings → "Connect Claude Code's status line…" in the panel works out the exact command for your settings file.
 Gondar only reads that file; you make the change.
 
+## Resource use
+
+Gondar is built to cost next to nothing while it sits in the menu bar.
+Measured on 20 October 2026 on an Apple M4 Mac with 10 cores, with the 0.1.0 release build:
+
+| State | CPU (share of one core) | Memory |
+|---|---|---|
+| Menu bar only (panel and pop-out closed) | about 0.07 % | 26 MB footprint (36 to 43 MB resident) |
+| Pop-out open | about 0.08 % | not measured |
+| Panel open | about 0.06 % | up to 48 MB resident |
+
+CPU is the CPU time the process used over a window (3 minutes with the panel and pop-out closed, 3 minutes with the pop-out open, 1 minute with the panel open) divided by that window.
+With the menu bar only, that was 0.13 s of CPU and 6 threads, with no GPU time over the sample.
+With the pop-out open it was 0.15 s of CPU, again with no GPU time.
+Energy impact, from `top`'s power column, was 0.0 in every state.
+If the status line is connected, each refresh of the bundled `gondar-feed` takes about 10 ms and 2 MB, then it exits.
+
 ## Privacy
 
 Gondar keeps two files in `~/Library/Application Support/Gondar/`, readable only by you:
