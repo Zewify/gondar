@@ -1,4 +1,5 @@
 import AppKit
+import GondarCore
 import SwiftUI
 
 /// Owns the one pop-out window: always on top, on every Space and over full-screen apps,
@@ -21,8 +22,15 @@ final class FloatingWindowController: NSObject, NSWindowDelegate {
     /// Set once the app starts quitting: the window is closed on the way out, and that close must not forget it was open.
     /// This relies on applicationShouldTerminate always answering .terminateNow; a cancelled quit would leave it set.
     private var isQuitting = false
-    /// True from a first open with no saved frame until the window has been fitted to its rows, once.
-    private var needsFit = false
+    /// Set once the window has been fitted to its rows, or once the person has moved or resized it, whichever is first;
+    /// until then the first numbers to arrive fit it, even across launches.
+    static let fittedKey = "floatingWindowFitted"
+    private var isFitted: Bool {
+        get { UserDefaults.standard.bool(forKey: Self.fittedKey) }
+        set { UserDefaults.standard.set(newValue, forKey: Self.fittedKey) }
+    }
+    /// True while the controller places the window itself, so its own moves are not taken for the person's.
+    private var isPlacing = false
 
     init(model: UsageModel, content: @escaping @MainActor () -> AnyView) {
         self.model = model
@@ -62,12 +70,10 @@ final class FloatingWindowController: NSObject, NSWindowDelegate {
         hosting.sizingOptions = []
         window.contentView = hosting
         window.delegate = self
-        // Reopens where it was left; the very first time, it is centred at the default size,
-        // then fitted to its rows once they arrive (contentFit). After that the saved frame wins.
-        if !window.setFrameUsingName(Self.autosaveName) {
-            window.center()
-            needsFit = true
-        }
+        isPlacing = true
+        // Reopens where it was left; the very first time, it is centred at the default size.
+        // Until it is fitted (contentFit), the first numbers to arrive fit it to its rows.
+        if !window.setFrameUsingName(Self.autosaveName) { window.center() }
         window.setFrameAutosaveName(Self.autosaveName)
         self.window = window
         isViewing = true
@@ -78,21 +84,39 @@ final class FloatingWindowController: NSObject, NSWindowDelegate {
         } else {
             window.orderFrontRegardless()
         }
+        isPlacing = false
         centreTrafficLights(in: window)
     }
 
-    /// Grows or shrinks a window that had no saved frame so every row shows without scrolling,
-    /// capped to its screen's visible frame, keeping it centred; it happens once.
+    /// Grows or shrinks the window once so every row shows without scrolling: the top edge stays,
+    /// the height is capped to the screen's visible frame, and the window stays inside it.
     func contentFit(content: CGFloat, viewport: CGFloat) {
-        guard needsFit, let window, let screen = window.screen ?? NSScreen.main else { return }
-        needsFit = false
-        let visible = screen.visibleFrame
-        var frame = window.frame
-        let height = min(max(frame.height + (content - viewport).rounded(.up), Self.minimumSize.height), visible.height)
-        frame.origin.y += frame.height - height
-        frame.size.height = height
-        window.setFrame(frame, display: true)
-        window.center()
+        guard !isFitted, let window, let screen = window.screen ?? NSScreen.main else { return }
+        isFitted = true
+        let fitted = WindowFit.frame(
+            fitting: Self.rect(window.frame),
+            content: content,
+            viewport: viewport,
+            minimumHeight: Self.minimumSize.height,
+            within: Self.rect(screen.visibleFrame)
+        )
+        isPlacing = true
+        window.setFrame(NSRect(x: fitted.x, y: fitted.y, width: fitted.width, height: fitted.height), display: true)
+        isPlacing = false
+    }
+
+    private static func rect(_ r: NSRect) -> WindowFit.Rect {
+        WindowFit.Rect(x: r.origin.x, y: r.origin.y, width: r.width, height: r.height)
+    }
+
+    /// The person resizing it: their size wins over the fit.
+    func windowWillStartLiveResize(_ notification: Notification) {
+        isFitted = true
+    }
+
+    /// The person dragging it: their place wins over the fit. The controller's own placing is not counted.
+    func windowDidMove(_ notification: Notification) {
+        if !isPlacing { isFitted = true }
     }
 
     /// AppKit places the traffic lights on the title bar's centre line, which sits above the taller header's.

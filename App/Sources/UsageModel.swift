@@ -89,8 +89,10 @@ final class UsageModel {
     }
 
     /// The panel or the floating window opened: poll once, unless the last poll was under a minute ago.
+    /// Not while backing off after a failure: the scheduled retry handles that, and an extra request would prolong a rate limit.
     func viewerAppeared() {
         viewers += 1
+        guard schedule.pollsWhenViewed else { return }
         poll()
     }
 

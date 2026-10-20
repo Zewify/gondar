@@ -19,6 +19,10 @@ public struct PollSchedule: Sendable, Equatable {
         return max(retryAfter ?? .zero, backoff)
     }
 
+    /// Whether opening the panel or the window asks for a poll: not while backing off after a failure,
+    /// because the scheduled retry handles that and an extra request would prolong a rate limit.
+    public var pollsWhenViewed: Bool { failures == 0 }
+
     public static func mayPollNow(lastAttempt: Date?, now: Date) -> Bool {
         guard let lastAttempt else { return true }
         return now.timeIntervalSince(lastAttempt) >= 60

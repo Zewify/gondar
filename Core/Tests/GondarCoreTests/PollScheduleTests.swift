@@ -50,3 +50,8 @@ import Testing
     // The clock moved back after the last launch: wait one minute from now, not until the clock catches up.
     #expect(PollSchedule.restoredLastAttempt(now.addingTimeInterval(3600), now: now) == now)
 }
+
+@Test func viewerPollsOnlyOutsideBackoff() {
+    #expect(PollSchedule(failures: 0).pollsWhenViewed)
+    #expect(!PollSchedule(failures: 1).pollsWhenViewed)
+}
