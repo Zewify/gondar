@@ -25,7 +25,7 @@ public enum Problem: Sendable, Equatable {
 
     public var message: String {
         switch self {
-        case .claudeCodeNotSignedIn: "Sign in to Claude Code, or to claude.ai below."
+        case .claudeCodeNotSignedIn: "Sign in to Claude Code."
         case .keychainUnreadable: "Couldn't read Claude Code's login from the Keychain."
         case .tokenExpired: "Open Claude Code to refresh."
         case .unauthorized: "Claude Code's login was refused. Sign in to Claude Code again."

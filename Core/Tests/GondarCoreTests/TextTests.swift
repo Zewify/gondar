@@ -100,3 +100,13 @@ private func utc(_ text: String) -> Date {
     let extra = ExtraUsage(used: Money(minor: 0, currency: "USD", exponent: 2), limit: Money(minor: 0, currency: "USD", exponent: 2))
     #expect(MoneyText.extraUsage(extra, locale: english) == .spent("$0.00"))
 }
+
+/// The narrow window's countdown: a passed reset never reads "under 1 m".
+@Test func shortResetText() {
+    let now = Date(timeIntervalSince1970: 1_000_000)
+    #expect(ResetText.short(resetsAt: nil, now: now) == "No reset time")
+    #expect(ResetText.short(resetsAt: now - 5, now: now) == "Resetting now")
+    #expect(ResetText.short(resetsAt: now, now: now) == "Resetting now")
+    #expect(ResetText.short(resetsAt: now + 30, now: now) == "under 1 m")
+    #expect(ResetText.short(resetsAt: now + 96 * 60, now: now) == "1 h 36 m")
+}

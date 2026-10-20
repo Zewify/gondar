@@ -83,7 +83,7 @@ private func snap(account: String, org: String = "org") -> Snapshot {
 }
 
 @Test func problemMessages() {
-    #expect(Problem.claudeCodeNotSignedIn.message == "Sign in to Claude Code, or to claude.ai below.")
+    #expect(Problem.claudeCodeNotSignedIn.message == "Sign in to Claude Code.")
     #expect(Problem.tokenExpired.message == "Open Claude Code to refresh.")
     #expect(Problem.unauthorized.message == "Claude Code's login was refused. Sign in to Claude Code again.")
     #expect(Problem.rateLimited.message == "Asked too often. Trying again shortly.")

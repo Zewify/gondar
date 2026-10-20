@@ -55,12 +55,10 @@ struct LimitRow: View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             name
             Spacer(minLength: 0)
-            if let resetsAt = limit.resetsAt {
-                Text(verbatim: ResetText.countdown(to: resetsAt, now: now))
-                    .font(Theme.body(12))
-                    .foregroundStyle(Theme.muted)
-                    .fixedSize()
-            }
+            Text(verbatim: ResetText.short(resetsAt: limit.resetsAt, now: now))
+                .font(Theme.body(12))
+                .foregroundStyle(Theme.muted)
+                .fixedSize()
             percent
         }
         .padding(.horizontal, 12)

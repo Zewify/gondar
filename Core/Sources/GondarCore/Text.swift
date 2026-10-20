@@ -32,6 +32,13 @@ public enum ResetText {
         return "\(minutes / (24 * 60)) d \(minutes % (24 * 60) / 60) h"
     }
 
+    /// The narrow window's form: the countdown alone, or why there is none.
+    public static func short(resetsAt: Date?, now: Date) -> String {
+        guard let resetsAt else { return "No reset time" }
+        guard resetsAt > now else { return "Resetting now" }
+        return countdown(to: resetsAt, now: now)
+    }
+
     public static func full(resetsAt: Date?, now: Date, calendar: Calendar, locale: Locale) -> String {
         guard let resetsAt else { return "No reset time" }
         guard resetsAt > now else { return "Resetting now" }
