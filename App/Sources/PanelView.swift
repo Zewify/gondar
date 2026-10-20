@@ -9,16 +9,7 @@ struct PanelView: View {
     var body: some View {
         VStack(spacing: 0) {
             PanelHeader(model: model, compact: false)
-            if let report = model.state.display.snapshot?.report {
-                ForEach(report.limits) { limit in
-                    Divider().overlay(Theme.line)
-                    LimitRow(limit: limit, now: model.now, compact: false)
-                }
-                if let extra = report.extra {
-                    Divider().overlay(Theme.line)
-                    ExtraUsageRow(extra: extra, compact: false)
-                }
-            }
+            LimitList(model: model, compact: false)
             Divider().overlay(Theme.line)
             PanelFooter(model: model, onPopOut: onPopOut)
         }

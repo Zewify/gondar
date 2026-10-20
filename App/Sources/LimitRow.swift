@@ -1,6 +1,26 @@
 import GondarCore
 import SwiftUI
 
+/// Every limit in the order the source gives, then extra usage, each after a divider; nothing until there are numbers.
+/// Shared by the panel and the floating window.
+struct LimitList: View {
+    let model: UsageModel
+    let compact: Bool
+
+    var body: some View {
+        if let report = model.state.display.snapshot?.report {
+            ForEach(report.limits) { limit in
+                Divider().overlay(Theme.line)
+                LimitRow(limit: limit, now: model.now, compact: compact)
+            }
+            if let extra = report.extra {
+                Divider().overlay(Theme.line)
+                ExtraUsageRow(extra: extra, compact: compact)
+            }
+        }
+    }
+}
+
 /// One limit: its name, how much is used, and when it resets.
 /// `compact` is the narrow floating window's: name, countdown and percentage on one line.
 struct LimitRow: View {

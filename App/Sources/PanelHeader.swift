@@ -2,7 +2,7 @@ import GondarCore
 import SwiftUI
 
 /// Whose numbers these are and how old they are, or why there are none.
-/// `compact` is the floating window's: the email alone, small.
+/// `compact` is the narrow floating window's: the email alone, small, plus the age and the reason when the numbers are stale.
 struct PanelHeader: View {
     let model: UsageModel
     let compact: Bool
@@ -46,10 +46,13 @@ struct PanelHeader: View {
                     }
                 }
                 Spacer(minLength: 0)
-                Text(verbatim: UpdatedText.text(fetchedAt: snapshot.fetchedAt, now: model.now))
-                    .font(Theme.body(12))
-                    .foregroundStyle(Theme.muted)
-                    .fixedSize()
+                // The narrow window shows the email alone while the numbers are current, and their age once they are not.
+                if !compact || problem != nil {
+                    Text(verbatim: UpdatedText.text(fetchedAt: snapshot.fetchedAt, now: model.now))
+                        .font(Theme.body(12))
+                        .foregroundStyle(Theme.muted)
+                        .fixedSize()
+                }
             }
             if let problem {
                 Text(verbatim: problem.message)

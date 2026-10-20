@@ -3,28 +3,42 @@ import GondarCore
 import SwiftUI
 
 /// Where the numbers come from, then Pop out, Refresh and Quit, in PortGlimpse's footer styling.
+/// The floating window passes no `onPopOut`, which hides Pop out; when it is too narrow for the source line, the line goes.
+/// `compact` matches the narrow window's 12-point inset; the trailing padding plus the buttons' own 8 makes the same visible edge.
 struct PanelFooter: View {
     let model: UsageModel
-    let onPopOut: () -> Void
+    var onPopOut: (() -> Void)?
+    var compact = false
 
     var body: some View {
+        ViewThatFits(in: .horizontal) {
+            row(showingSource: true)
+            row(showingSource: false)
+        }
+        .padding(.leading, compact ? 12 : 18)
+        .padding(.trailing, compact ? 4 : 10)
+        .padding(.vertical, 10)
+        .background(Theme.footer)
+    }
+
+    private func row(showingSource: Bool) -> some View {
         HStack(spacing: 4) {
-            Text(verbatim: sourceLine)
-                .font(Theme.body(12))
-                .foregroundStyle(Theme.muted)
-                .lineLimit(1)
-                .fixedSize()
+            if showingSource {
+                Text(verbatim: sourceLine)
+                    .font(Theme.body(12))
+                    .foregroundStyle(Theme.muted)
+                    .lineLimit(1)
+                    .fixedSize()
+            }
             Spacer(minLength: 4)
-            footerButton("Pop out", action: onPopOut)
+            if let onPopOut {
+                footerButton("Pop out", action: onPopOut)
+            }
             footerButton("Refresh", action: model.refresh)
                 .disabled(!model.canRefresh)
                 .help(model.canRefresh ? "Check usage now" : "Checked under a minute ago")
             footerButton("Quit") { NSApp.terminate(nil) }
         }
-        .padding(.leading, 18)
-        .padding(.trailing, 10)
-        .padding(.vertical, 10)
-        .background(Theme.footer)
     }
 
     private var sourceLine: String {
