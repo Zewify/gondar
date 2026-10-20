@@ -135,6 +135,13 @@ A new mark in PortGlimpse's colourway, the same way PortGlimpse's amber colon si
 That is the builder's starting point, not a settled choice; the maintainer settles it.
 It is used in the menu bar in full colour at 18 points, as an app icon rendered by a `make-icon.swift` script like PortGlimpse's, and later on the product page.
 
+The first cut, still the maintainer's to settle, has one geometry in `App/Sources/GaugeMark.swift`, shared by the menu bar and `scripts/make-icon.swift`:
+- **Menu bar:** an 18-point tile inset 0.5 with a 4-point corner, as PortGlimpse's.
+  On it is a 240° arc open at the bottom, with radius 4.8 points, a 2.4-point stroke and round ends, centred at (9, 8).
+  The track is `#4A3F35` and amber `#F48E48` fills 60 % of it from the left end over the top.
+- **App icon:** the same mark on the macOS grid (an 824-point tile inset 100 in 1024, corner 185), scaled by 824 / 18 about the centre, as PortGlimpse scales its colon.
+  It is re-rendered with `./scripts/make-icon.sh`.
+
 ## How it is built
 
 - Swift 6, SwiftUI, XcodeGen (`project.yml`; the generated `.xcodeproj` is gitignored), macOS 14 or later.

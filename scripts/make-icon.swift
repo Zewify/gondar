@@ -16,8 +16,10 @@ struct MakeIcon {
             images.append(["idiom": "mac", "size": "\(points)x\(points)", "scale": "\(scale)x", "filename": name])
         }
         let contents: [String: Any] = ["images": images, "info": ["author": "xcode", "version": 1]]
-        try JSONSerialization.data(withJSONObject: contents, options: [.prettyPrinted, .sortedKeys])
-            .write(to: output.appendingPathComponent("Contents.json"))
+        // A trailing newline, so regenerating leaves the file unchanged.
+        var json = try JSONSerialization.data(withJSONObject: contents, options: [.prettyPrinted, .sortedKeys])
+        json.append(0x0A)
+        try json.write(to: output.appendingPathComponent("Contents.json"))
         print("Wrote \(sizes.count) icons to \(output.path)")
     }
 

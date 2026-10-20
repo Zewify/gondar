@@ -3,7 +3,8 @@
 # Usage: ./scripts/make-icon.sh [output appiconset]
 set -euo pipefail
 cd "$(dirname "$0")/.."
-tool="$(mktemp -d)/make-icon"
+dir="$(mktemp -d)"
+trap 'rm -rf "$dir"' EXIT
+tool="$dir/make-icon"
 swiftc -O -o "$tool" App/Sources/GaugeMark.swift scripts/make-icon.swift
 "$tool" "${1:-App/Resources/Assets.xcassets/AppIcon.appiconset}"
-rm -rf "$(dirname "$tool")"
