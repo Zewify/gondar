@@ -11,6 +11,8 @@ struct WindowView: View {
     static let headerHeight: CGFloat = 44
 
     let model: UsageModel
+    let loginItem: LoginItem
+    let updates: UpdateChecker
     /// The rows' full height and the height the scroll view has for them, reported once there are numbers,
     /// so the controller can fit a window that has no saved frame to its content.
     var onContentFit: @MainActor (_ content: CGFloat, _ viewport: CGFloat) -> Void = { _, _ in }
@@ -33,7 +35,7 @@ struct WindowView: View {
                 }
                 .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { viewportHeight = $0; reportFit() }
                 Divider().overlay(Theme.line)
-                PanelFooter(model: model, compact: compact)
+                PanelFooter(model: model, loginItem: loginItem, updates: updates, compact: compact)
             }
         }
         .background(Theme.panel)

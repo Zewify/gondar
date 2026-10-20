@@ -2,23 +2,63 @@ import AppKit
 import GondarCore
 import SwiftUI
 
-/// Where the numbers come from, then Pop out, Refresh and Quit, in PortGlimpse's footer styling.
+/// Where the numbers come from, then Settings, Pop out, Refresh and Quit, in PortGlimpse's footer styling,
+/// with an update row above them when a newer release exists (never while `UpdateChecker.feed` is nil).
 /// The floating window passes no `onPopOut`, which hides Pop out; when it is too narrow for the source line, the line goes.
 /// `compact` matches the narrow window's 12-point inset; the trailing padding plus the buttons' own 8 makes the same visible edge.
 struct PanelFooter: View {
     let model: UsageModel
+    let loginItem: LoginItem
+    @Bindable var updates: UpdateChecker
     var onPopOut: (() -> Void)?
     var compact = false
 
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            row(showingSource: true)
-            row(showingSource: false)
+        VStack(spacing: 0) {
+            if let version = updates.available {
+                updateRow(version)
+                Divider().overlay(Theme.line)
+            }
+            ViewThatFits(in: .horizontal) {
+                row(showingSource: true)
+                row(showingSource: false)
+            }
+            .padding(.leading, inset)
+            .padding(.trailing, compact ? 4 : 10)
+            .padding(.vertical, 10)
         }
-        .padding(.leading, compact ? 12 : 18)
-        .padding(.trailing, compact ? 4 : 10)
-        .padding(.vertical, 10)
         .background(Theme.footer)
+    }
+
+    private var inset: CGFloat { compact ? 12 : 18 }
+
+    private func updateRow(_ version: AppVersion) -> some View {
+        HStack {
+            Text(verbatim: "Update available: \(version)")
+                .font(Theme.body(13, .semibold))
+                .foregroundStyle(Theme.amber)
+                .lineLimit(1)
+            Spacer(minLength: 4)
+            if UpdateChecker.installCommand != nil {
+                footerButton("Copy install command") { updates.copyInstallCommand() }
+            }
+        }
+        .padding(.leading, inset)
+        .padding(.trailing, compact ? 4 : 10)
+        .padding(.vertical, 8)
+    }
+
+    private var settingsMenu: some View {
+        Menu("Settings") {
+            Toggle("Launch at login", isOn: Binding(get: { loginItem.isEnabled }, set: { loginItem.set($0) }))
+            if UpdateChecker.feed != nil {
+                Toggle("Check for updates", isOn: $updates.isEnabled)
+            }
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .font(Theme.body(13, .semibold))
+        .foregroundStyle(Theme.muted)
     }
 
     private func row(showingSource: Bool) -> some View {
@@ -31,6 +71,7 @@ struct PanelFooter: View {
                     .fixedSize()
             }
             Spacer(minLength: 4)
+            settingsMenu
             if let onPopOut {
                 footerButton("Pop out", action: onPopOut)
             }

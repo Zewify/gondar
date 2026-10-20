@@ -8,7 +8,7 @@ struct GondarApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            PanelView(model: delegate.model, onPopOut: { delegate.popOut() })
+            PanelView(model: delegate.model, onPopOut: { delegate.popOut() }, loginItem: delegate.loginItem, updates: delegate.updates)
         } label: {
             MenuBarLabel(
                 text: delegate.model.menuBarText,
@@ -23,14 +23,18 @@ struct GondarApp: App {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let model = UsageModel()
+    let loginItem = LoginItem()
+    let updates = UpdateChecker()
     lazy var floatingWindow: FloatingWindowController = FloatingWindowController(model: model) { [unowned self] in
-        AnyView(WindowView(model: model) { [unowned self] content, viewport in
+        AnyView(WindowView(model: model, loginItem: loginItem, updates: updates) { [unowned self] content, viewport in
             floatingWindow.contentFit(content: content, viewport: viewport)
         })
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         model.start()
+        updates.start()
+        loginItem.enableOnFirstLaunch()
         // It was open when the app last quit: put it back where it was, without taking focus.
         if FloatingWindowController.wasOpen { floatingWindow.show(activate: false) }
     }

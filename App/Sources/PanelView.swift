@@ -5,13 +5,15 @@ import SwiftUI
 struct PanelView: View {
     let model: UsageModel
     let onPopOut: () -> Void
+    let loginItem: LoginItem
+    let updates: UpdateChecker
 
     var body: some View {
         VStack(spacing: 0) {
             PanelHeader(model: model, compact: false)
             LimitList(model: model, compact: false)
             Divider().overlay(Theme.line)
-            PanelFooter(model: model, onPopOut: onPopOut)
+            PanelFooter(model: model, loginItem: loginItem, updates: updates, onPopOut: onPopOut)
         }
         .frame(width: 340)
         .background(Theme.panel)
