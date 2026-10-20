@@ -65,7 +65,7 @@ How Gondar uses it:
   A genuine report replaces the stored entry of each limit it reported outright (number, reset time, its own received time), since it is the newest word; keeping the higher number or the later window would let one account's number outlive a switch (ruled 2026-10-20, round 2).
 - The status line carries no account, so a limit belongs to whichever account `~/.claude.json` names when it arrives; a limit received before the last account change is ignored, judged by its own time. Gondar's launch counts as an account change, since it cannot know what changed while it was not running.
 - Each limit counts as fresh for 10 minutes from its own time. A limit present in fresh feed data is shown from the feed, unless its window has already reset (then it is not used at all) or the API's window ends two minutes or more later (then the API's entry stays); in the same window as the API's it shows the higher of the two, since either may be behind; limits only the API knows (Fable, extra usage, anything new) come from the API.
-- While the feed is fresh, automatic polls ask the API at most every 15 minutes (for those extra limits and for the account check), and opening the panel or the window does not poll; Refresh still polls, within the one-minute floor. Otherwise polling is as in "Polling" below, and a feed going quiet brings that schedule back at once.
+- While the feed is fresh, automatic polls ask the API at most every 15 minutes (for those extra limits and for the account check), and opening the panel or the window does not poll; Refresh still polls, within the one-minute floor. Otherwise polling is as in "Polling" below (every 5 minutes, decided on 2026-10-20), and a feed going quiet brings that schedule back at once.
 - The panel's source line says "Live from Claude Code" while the feed is fresh, and "From Anthropic" otherwise.
 
 Last numbers survive a relaunch: Gondar saves the last snapshot it showed (account and organisation IDs, the limits, the time; never a token, never an email) to `~/Library/Application Support/Gondar/last.json`, and at launch shows it at once, stale with "Last numbers from before Gondar restarted." ("Restored" in the pop-out) and its age, if it belongs to the account `~/.claude.json` names, until the first live or API result. A failed first poll replaces that reason with its own and keeps the age. It is rewritten when the limits change, otherwise at most once a minute.
@@ -135,13 +135,13 @@ For source 2, the account is whichever one is signed in to claude.ai in the app'
 
 ### Polling
 
-Poll every two minutes, and once immediately when the panel or the floating window opens (builder's call on the exact interval, never more often than once a minute).
+Poll every five minutes (every 15 while the status line feed is live, see Source 0), and once immediately when the panel or the floating window opens (builder's call on the exact interval, never more often than once a minute).
 On a 429 or a network failure, back off and keep the last values, marked stale.
 When the Mac sleeps, stop; on wake, poll once.
 
 Builder's calls:
-- The interval is 120 seconds.
-- After a failure the wait is 120 s × 2^n for n failures in a row, capped at 30 minutes; a `Retry-After` only ever lengthens it, because the usage endpoint answers 429 with `retry-after: 0`.
+- The interval is 300 seconds: decided on 2026-10-20, up from the builder's 120 s, to ask Anthropic less often when the status line feed is not live.
+- After a failure the wait is 300 s × 2^n (300, 600, 1200, 1800 s, then 1800 s) for n failures in a row, capped at 30 minutes; a `Retry-After` only ever lengthens it, because the usage endpoint answers 429 with `retry-after: 0`.
 - No poll runs within 60 seconds of the last attempt, the person's Refresh included; the time of the last attempt is saved, so the floor holds across relaunches.
 - Opening the panel or the window does not poll while backing off after a failure, since the scheduled retry handles that and an extra request would prolong a rate limit.
 - An expired token is not counted as a failure: the Keychain is read again at the next interval.
@@ -198,7 +198,7 @@ The builder's call on how stale states read: the numbers stay, the menu bar numb
 The floating window keeps its rows and says it in its title strip instead, beside the name, on one line that never wraps: a short reason and the age in amber ("Rate limited · 2 min ago", "Offline · 5 min ago", "Login expired · 3 min ago"), or the reason alone when the window is too narrow for both, with the full reason and age as the strip's tooltip.
 Status text never pushes the rows out of the window, so its height stays the same whether the numbers are current or stale (found on 2026-10-20: a wrapped status line above the rows hid them in a window fitted to them).
 While loading it shows a small spinner, and without numbers the full reason in place of the rows.
-As a backstop, numbers that no poll has replaced for longer than two intervals and a minute (300 seconds) are shown as stale with "Not updated for several minutes.", even when no failure explains it, so old numbers can never look current.
+As a backstop, numbers that no poll has replaced for longer than two intervals and a minute (660 seconds) are shown as stale with "Not updated for several minutes.", even when no failure explains it, so old numbers can never look current.
 Without numbers to keep, the reason shows alone in place of the rows.
 The reasons:
 - "Sign in to Claude Code." — no Keychain item; the previous account's numbers are dropped.

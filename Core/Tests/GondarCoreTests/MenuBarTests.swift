@@ -64,14 +64,14 @@ private func snapshot(_ limits: [UsageLimit]) -> Snapshot {
     #expect(Display.unavailable(.offline).menuBarAccessibilityLabel == "Gondar")
 }
 
-/// A ready snapshot that has not been replaced for 2 × 120 s + 60 s is shown as stale, so old numbers never look current.
+/// A ready snapshot that has not been replaced for 2 × 300 s + 60 s is shown as stale, so old numbers never look current.
 @Test func oldReadyNumbersArePresentedAsStale() {
     let shown = snapshot([limit(.session, percent: 12)])
     let fetched = shown.fetchedAt
-    #expect(Display.ready(shown).presented(now: fetched + 300) == .ready(shown))
-    #expect(Display.ready(shown).presented(now: fetched + 301) == .stale(shown, .notUpdating))
-    #expect(Display.ready(shown).presented(now: fetched + 301).menuBarTone == .stale)
-    #expect(Display.ready(shown).presented(now: fetched + 301).menuBarAccessibilityLabel.hasSuffix("not current"))
+    #expect(Display.ready(shown).presented(now: fetched + 660) == .ready(shown))
+    #expect(Display.ready(shown).presented(now: fetched + 661) == .stale(shown, .notUpdating))
+    #expect(Display.ready(shown).presented(now: fetched + 661).menuBarTone == .stale)
+    #expect(Display.ready(shown).presented(now: fetched + 661).menuBarAccessibilityLabel.hasSuffix("not current"))
 }
 
 @Test func presentingLeavesOtherStatesAlone() {

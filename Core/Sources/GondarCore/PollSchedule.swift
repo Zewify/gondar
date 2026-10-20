@@ -1,7 +1,7 @@
 import Foundation
 
 public struct PollSchedule: Sendable, Equatable {
-    public static let interval: Duration = .seconds(120)
+    public static let interval: Duration = .seconds(300)
     /// How often the API is asked while Claude Code's status line feed is fresh: only for what the feed lacks.
     public static let feedInterval: Duration = .seconds(900)
     public static let minimumGap: Duration = .seconds(60)
@@ -13,7 +13,7 @@ public struct PollSchedule: Sendable, Equatable {
         self.failures = failures
     }
 
-    /// The backoff (120 s doubling per failure, at most 30 min), or a longer Retry-After.
+    /// The backoff (300 s doubling per failure, at most 30 min), or a longer Retry-After.
     /// Retry-After only ever lengthens the wait: the usage endpoint answers 429 with `retry-after: 0`.
     public func nextDelay(retryAfter: Duration?) -> Duration {
         let exponent = min(max(failures, 0), 4)
