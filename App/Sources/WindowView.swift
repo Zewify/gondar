@@ -11,6 +11,12 @@ struct WindowView: View {
     static let headerHeight: CGFloat = 44
 
     let model: UsageModel
+    /// The rows' full height and the height the scroll view has for them, reported once there are numbers,
+    /// so the controller can fit a window that has no saved frame to its content.
+    var onContentFit: @MainActor (_ content: CGFloat, _ viewport: CGFloat) -> Void = { _, _ in }
+
+    @State private var contentHeight: CGFloat = 0
+    @State private var viewportHeight: CGFloat = 0
 
     var body: some View {
         GeometryReader { geometry in
@@ -23,7 +29,9 @@ struct WindowView: View {
                         PanelHeader(model: model, compact: compact)
                         LimitList(model: model, compact: compact)
                     }
+                    .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { contentHeight = $0; reportFit() }
                 }
+                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { viewportHeight = $0; reportFit() }
                 Divider().overlay(Theme.line)
                 PanelFooter(model: model, compact: compact)
             }
@@ -32,6 +40,11 @@ struct WindowView: View {
         .environment(\.colorScheme, .dark)
         // The content runs under the transparent title bar so the traffic lights sit in the header's own row.
         .ignoresSafeArea(.container, edges: .top)
+    }
+
+    private func reportFit() {
+        guard model.state.display.snapshot != nil, contentHeight > 0, viewportHeight > 0 else { return }
+        onContentFit(contentHeight, viewportHeight)
     }
 
     /// The traffic lights sit over the leading 78 points; the text ignores clicks so the drag handle gets them.

@@ -26,3 +26,20 @@ import Testing
     #expect(PollSchedule.mayPollNow(lastAttempt: now.addingTimeInterval(-61), now: now))
     #expect(PollSchedule.mayPollNow(lastAttempt: nil, now: now))
 }
+
+@Test func waitsOutTheRestOfTheMinute() {
+    let now = Date(timeIntervalSince1970: 10_000)
+    #expect(PollSchedule.wait(lastAttempt: nil, now: now) == .zero)
+    #expect(PollSchedule.wait(lastAttempt: now.addingTimeInterval(-61), now: now) == .zero)
+    #expect(PollSchedule.wait(lastAttempt: now.addingTimeInterval(-60), now: now) == .zero)
+    #expect(PollSchedule.wait(lastAttempt: now.addingTimeInterval(-20), now: now) == .seconds(40))
+    #expect(PollSchedule.wait(lastAttempt: now, now: now) == .seconds(60))
+}
+
+@Test func restoredAttemptIsNeverInTheFuture() {
+    let now = Date(timeIntervalSince1970: 10_000)
+    #expect(PollSchedule.restoredLastAttempt(nil, now: now) == nil)
+    #expect(PollSchedule.restoredLastAttempt(now.addingTimeInterval(-30), now: now) == now.addingTimeInterval(-30))
+    // The clock moved back after the last launch: wait one minute from now, not until the clock catches up.
+    #expect(PollSchedule.restoredLastAttempt(now.addingTimeInterval(3600), now: now) == now)
+}

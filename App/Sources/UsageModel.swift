@@ -25,7 +25,13 @@ final class UsageModel {
 
     @ObservationIgnored private let client = AnthropicClient()
     @ObservationIgnored private var schedule = PollSchedule()
-    @ObservationIgnored private var lastAttempt: Date?
+    /// Saved as a timestamp (never anything secret), so a relaunch keeps the one-minute floor.
+    @ObservationIgnored private var lastAttempt: Date? = PollSchedule.restoredLastAttempt(
+        UserDefaults.standard.object(forKey: UsageModel.lastAttemptKey) as? Date, now: Date()
+    ) {
+        didSet { UserDefaults.standard.set(lastAttempt, forKey: Self.lastAttemptKey) }
+    }
+    private static let lastAttemptKey = "lastPollAttempt"
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var pollTask: Task<Void, Never>?
     @ObservationIgnored private var nextPoll: Task<Void, Never>?
@@ -45,6 +51,8 @@ final class UsageModel {
 
     func start() {
         guard ticker == nil else { return }
+        // A restored attempt under a minute old keeps Refresh disabled until the minute is up.
+        updateCanRefresh()
         ticker = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(30))
@@ -70,7 +78,8 @@ final class UsageModel {
             let account = await AccountFileWatcher.read()
             guard let self else { return }
             if let account { self.localAccount = account }
-            self.poll()
+            // A relaunch within a minute of the last poll waits out the rest of it.
+            self.pollOrWait()
         }
     }
 
@@ -123,6 +132,7 @@ final class UsageModel {
 
         lastAttempt = Date()
         updateCanRefresh()
+        Self.logger.notice("Polling usage")
 
         let keychainValue: String
         let read = await CredentialReader.read()
@@ -221,8 +231,8 @@ final class UsageModel {
 
     /// Polls now if the minute since the last attempt has passed, otherwise when it does.
     private func pollOrWait() {
-        if let lastAttempt, !PollSchedule.mayPollNow(lastAttempt: lastAttempt, now: Date()) {
-            let wait = PollSchedule.minimumGap - .seconds(Date().timeIntervalSince(lastAttempt))
+        let wait = PollSchedule.wait(lastAttempt: lastAttempt, now: Date())
+        if wait > .zero {
             schedulePoll(after: max(wait, .seconds(1)))
         } else {
             poll()
@@ -233,10 +243,10 @@ final class UsageModel {
         canRefresh = PollSchedule.mayPollNow(lastAttempt: lastAttempt, now: Date())
         refreshGate?.cancel()
         refreshGate = nil
-        guard !canRefresh, let lastAttempt else { return }
-        let remaining = PollSchedule.minimumGap - .seconds(Date().timeIntervalSince(lastAttempt))
+        guard !canRefresh else { return }
+        let remaining = PollSchedule.wait(lastAttempt: lastAttempt, now: Date())
         refreshGate = Task { [weak self] in
-            try? await Task.sleep(for: max(remaining, .zero))
+            try? await Task.sleep(for: remaining)
             guard !Task.isCancelled, let self else { return }
             self.refreshGate = nil
             self.canRefresh = PollSchedule.mayPollNow(lastAttempt: self.lastAttempt, now: Date())

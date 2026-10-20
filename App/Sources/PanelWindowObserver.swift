@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Observes the window hosting it and gives that window an Escape handler.
 /// The menu bar panel reports open and close (the model pairs them) and passes an Escape handler that declines the key.
-/// The pop-out window passes only onEscape, because its controller pairs its own viewer calls with show, minimise and close.
+/// The floating window does not use it: its controller pairs its own viewer calls with show, minimise and close.
 /// A window-style MenuBarExtra keeps its view alive between openings, so onAppear is not enough;
 /// the panel's window becomes key when shown and resigns key when dismissed.
 struct PanelWindowObserver: NSViewRepresentable {

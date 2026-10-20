@@ -23,21 +23,23 @@ struct GondarApp: App {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let model = UsageModel()
-    lazy var window = FloatingWindowController(model: model) { [unowned self] in
-        AnyView(WindowView(model: model))
+    lazy var floatingWindow: FloatingWindowController = FloatingWindowController(model: model) { [unowned self] in
+        AnyView(WindowView(model: model) { [unowned self] content, viewport in
+            floatingWindow.contentFit(content: content, viewport: viewport)
+        })
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         model.start()
         // It was open when the app last quit: put it back where it was, without taking focus.
-        if FloatingWindowController.wasOpen { window.show(activate: false) }
+        if FloatingWindowController.wasOpen { floatingWindow.show(activate: false) }
     }
 
     /// Closing the floating window leaves the app in the menu bar.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        window.appWillQuit()
+        floatingWindow.appWillQuit()
         return .terminateNow
     }
 
@@ -47,7 +49,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func popOut() {
         // The panel is the key window at click time; taken before the pop-out window becomes key.
         let panelWindow = NSApp.keyWindow
-        window.show()
+        floatingWindow.show()
         // If the system already closed the panel when it resigned key, clicking the icon would open it again.
         guard panelWindow?.isVisible == true else { return }
         guard let button = Self.statusItemButton() else {

@@ -6,7 +6,7 @@ import SwiftUI
 @MainActor
 final class FloatingWindowController: NSObject, NSWindowDelegate {
     static let defaultSize = NSSize(width: 320, height: 300)
-    static let minimumSize = NSSize(width: 220, height: 140)
+    static let minimumSize = NSSize(width: 230, height: 140)
     static let autosaveName = "GondarWindow"
     /// Set while the window is open, so a relaunch reopens it; quitting leaves it set.
     static let openKey = "floatingWindowOpen"
@@ -19,7 +19,10 @@ final class FloatingWindowController: NSObject, NSWindowDelegate {
     /// True while the window counts as a viewer; a minimised window does not, so its refresh pauses.
     private var isViewing = false
     /// Set once the app starts quitting: the window is closed on the way out, and that close must not forget it was open.
+    /// This relies on applicationShouldTerminate always answering .terminateNow; a cancelled quit would leave it set.
     private var isQuitting = false
+    /// True from a first open with no saved frame until the window has been fitted to its rows, once.
+    private var needsFit = false
 
     init(model: UsageModel, content: @escaping @MainActor () -> AnyView) {
         self.model = model
@@ -59,8 +62,12 @@ final class FloatingWindowController: NSObject, NSWindowDelegate {
         hosting.sizingOptions = []
         window.contentView = hosting
         window.delegate = self
-        // Reopens where it was left; the very first time, it is centred at the default size.
-        if !window.setFrameUsingName(Self.autosaveName) { window.center() }
+        // Reopens where it was left; the very first time, it is centred at the default size,
+        // then fitted to its rows once they arrive (contentFit). After that the saved frame wins.
+        if !window.setFrameUsingName(Self.autosaveName) {
+            window.center()
+            needsFit = true
+        }
         window.setFrameAutosaveName(Self.autosaveName)
         self.window = window
         isViewing = true
@@ -72,6 +79,20 @@ final class FloatingWindowController: NSObject, NSWindowDelegate {
             window.orderFrontRegardless()
         }
         centreTrafficLights(in: window)
+    }
+
+    /// Grows or shrinks a window that had no saved frame so every row shows without scrolling,
+    /// capped to its screen's visible frame, keeping it centred; it happens once.
+    func contentFit(content: CGFloat, viewport: CGFloat) {
+        guard needsFit, let window, let screen = window.screen ?? NSScreen.main else { return }
+        needsFit = false
+        let visible = screen.visibleFrame
+        var frame = window.frame
+        let height = min(max(frame.height + (content - viewport).rounded(.up), Self.minimumSize.height), visible.height)
+        frame.origin.y += frame.height - height
+        frame.size.height = height
+        window.setFrame(frame, display: true)
+        window.center()
     }
 
     /// AppKit places the traffic lights on the title bar's centre line, which sits above the taller header's.
