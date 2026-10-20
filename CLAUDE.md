@@ -14,7 +14,8 @@ Plan: `docs/superpowers/plans/2026-10-20-gondar-app.md`.
 
 ## Commands
 
-- `./scripts/test.sh` — core tests, an app build, then `scripts/test-feed.sh` (the built app's `gondar-feed`, under a temp `HOME`). Run before every commit; the exit code is the verdict.
+- `./scripts/test.sh` — core tests, the installer tests (`scripts/test-install.sh`), an app build, then `scripts/test-feed.sh` (the built app's `gondar-feed`, under a temp `HOME`). Run before every commit; the exit code is the verdict.
+- `./scripts/package.sh` — the release build: Release, universal (the app and `gondar-feed` both checked with `lipo`), `codesign --verify --deep --strict`, then the zip, its SHA-256 and the release notes in `build/release/`. The Release workflow runs it; locally it is only a dry run.
 - `./scripts/build.sh [Debug|Release]` — generates the project and builds; prints the app path.
 - `./scripts/install-local.sh` — a Release build copied to `/Applications` and launched.
 - `open -n build/DerivedData/Build/Products/Debug/Gondar.app --args -GondarDemo stale` — a Debug build with made-up stale numbers and no network, opening the pop-out; it saves no window frame or flags, since it shares the installed app's defaults. Compiled out of Release.
@@ -31,3 +32,8 @@ Plan: `docs/superpowers/plans/2026-10-20-gondar-app.md`.
 - Tokens are never logged, written to disk or `UserDefaults`, or sent anywhere but `api.anthropic.com` and `claude.ai`.
 - Poll every 300 seconds (five minutes; decided 2026-10-20, up from 120 s) when the status line feed is not live, and every 15 minutes while it is; after a failure back off 120 s × 2^n (240, 480, 960, then 1800 s), re-read the Keychain every 120 s without a usable token, and call numbers stale after 360 s (six minutes, longer than the regular interval so a check never flashes stale; each its own constant in `PollSchedule`, kept on purpose, 2026-10-20); never more often than once per 60 seconds, refreshes the person asks for included.
 - "Claude" is never part of the product's name; "Claude Code" and "claude.ai" may be named as sources.
+- Releases are ad hoc signed and installed only with `scripts/install.sh` (`curl -fsSL https://zewify.com/gondar/install.sh | sh`, a redirect on the web server that serves zewify.com to that file on `main`, so a push to `main` changes the live installer at once). The installer replaces the whole app, so the bundled `gondar-feed` updates with it at the same path, and it refuses a download whose app lacks `gondar-feed`.
+- To release: bump `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in `project.yml`, write `docs/releases/<version>.md` (it becomes the release's "What's new"; every line must be true of the code), push `main` and wait for its Tests run to pass, then `git tag v<version>` on `main` and push the tag. The Release workflow runs one at a time and refuses a tag off `main` or one that doesn't match `MARKETING_VERSION`; it tests, packages and publishes the zip and its `.sha256`. Then bump `latestVersion` for Gondar in the zewify repo.
+- The app's `UpdateChecker` asks `https://api.github.com/repos/Zewify/gondar/releases/latest` once a day and offers the install command; setting either constant to nil switches it off.
+- `./scripts/test-install.sh` never touches the real app: it stubs `is_running`, `quit_app` and `launch_app` after sourcing the installer, and installs into a temp folder.
+- Source available, not open source: no licence file, all rights kept by Zewify; never call it open source.
