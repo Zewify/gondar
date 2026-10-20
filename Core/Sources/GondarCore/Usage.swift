@@ -183,7 +183,11 @@ private struct WireLimit: Decodable {
         isActive = try container.decode(Bool.self, forKey: .isActive)
         if let text = try container.decodeIfPresent(String.self, forKey: .resetsAt) {
             // Both the fractional-second and whole-second forms parse with this style on macOS 14+.
-            resetsAt = try Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse(text)
+            let parsed = try Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse(text)
+            // The server jitters about a second either side of the boundary (09:39:59.757, 09:40:00.236);
+            // rounded to the minute, the clock time never reads a minute early.
+            let t = parsed.timeIntervalSinceReferenceDate
+            resetsAt = Date(timeIntervalSinceReferenceDate: (t / 60).rounded() * 60)
         } else {
             resetsAt = nil
         }

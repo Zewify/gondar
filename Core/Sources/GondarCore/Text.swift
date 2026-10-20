@@ -90,3 +90,19 @@ public enum MoneyText {
         return formatter.string(from: amount as NSDecimalNumber) ?? "\(amount) \(money.currency)"
     }
 }
+
+/// What the extra-usage row says: spend against its cap, or spend alone when there is no cap to compare with.
+public enum ExtraUsageText: Sendable, Equatable {
+    /// "$12.34 of $50.00"
+    case spendOfLimit(used: String, limit: String)
+    /// "$0.00 used": a zero cap is no limit worth showing.
+    case spent(String)
+}
+
+extension MoneyText {
+    public static func extraUsage(_ extra: ExtraUsage, locale: Locale) -> ExtraUsageText {
+        let used = text(extra.used, locale: locale)
+        guard extra.limit.minor != 0 else { return .spent(used) }
+        return .spendOfLimit(used: used, limit: text(extra.limit, locale: locale))
+    }
+}

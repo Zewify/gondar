@@ -21,6 +21,7 @@ final class UsageModel {
     var sessionLimit: UsageLimit? { state.display.sessionLimit }
     var menuBarText: String { state.display.menuBarText }
     var menuBarTone: MenuBarTone { state.display.menuBarTone }
+    var menuBarAccessibilityLabel: String { state.display.menuBarAccessibilityLabel }
 
     @ObservationIgnored private let client = AnthropicClient()
     @ObservationIgnored private var schedule = PollSchedule()

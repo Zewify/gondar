@@ -90,3 +90,13 @@ private func utc(_ text: String) -> Date {
     let text = MoneyText.text(Money(minor: 1234, currency: "USD", exponent: 2), locale: english)
     #expect(text == "$12.34")
 }
+
+@Test func extraUsageTextAgainstACap() {
+    let extra = ExtraUsage(used: Money(minor: 1234, currency: "USD", exponent: 2), limit: Money(minor: 5000, currency: "USD", exponent: 2))
+    #expect(MoneyText.extraUsage(extra, locale: english) == .spendOfLimit(used: "$12.34", limit: "$50.00"))
+}
+
+@Test func extraUsageTextWithoutACap() {
+    let extra = ExtraUsage(used: Money(minor: 0, currency: "USD", exponent: 2), limit: Money(minor: 0, currency: "USD", exponent: 2))
+    #expect(MoneyText.extraUsage(extra, locale: english) == .spent("$0.00"))
+}

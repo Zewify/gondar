@@ -76,19 +76,25 @@ struct ExtraUsageRow: View {
                 .foregroundStyle(Theme.text)
                 .lineLimit(1)
             Spacer(minLength: 0)
-            // The amounts in the numbers' face, the word between them in the body's.
-            (money(extra.used) + Text(" of ").font(Theme.body(12)).foregroundStyle(Theme.muted) + money(extra.limit))
-                .fixedSize()
+            // The amounts in the numbers' face, the words around them in the body's.
+            Group {
+                switch MoneyText.extraUsage(extra, locale: .autoupdatingCurrent) {
+                case .spendOfLimit(let used, let limit): amount(used) + word(" of ") + amount(limit)
+                case .spent(let used): amount(used) + word(" used")
+                }
+            }
+            .fixedSize()
         }
         .padding(.horizontal, compact ? 12 : 18)
         .padding(.vertical, compact ? 6 : 12)
     }
 
-    private func money(_ money: Money) -> Text {
-        Text(verbatim: MoneyText.text(money, locale: .autoupdatingCurrent))
-            .font(Theme.mono(13))
-            .monospacedDigit()
-            .foregroundStyle(Theme.text)
+    private func amount(_ text: String) -> Text {
+        Text(verbatim: text).font(Theme.mono(13)).monospacedDigit().foregroundStyle(Theme.text)
+    }
+
+    private func word(_ text: String) -> Text {
+        Text(verbatim: text).font(Theme.body(12)).foregroundStyle(Theme.muted)
     }
 }
 

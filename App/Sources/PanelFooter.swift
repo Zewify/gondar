@@ -41,6 +41,7 @@ struct PanelFooter: View {
 }
 
 /// PortGlimpse's footer text buttons: muted semibold text, faded while disabled.
+/// Faded to 0.65, not further: that is 3.5:1 on the footer (6.4:1 enabled), still legible at 13 points on a 1x display.
 private struct FooterButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
 
@@ -48,7 +49,7 @@ private struct FooterButtonStyle: ButtonStyle {
         configuration.label
             .font(Theme.body(13, .semibold))
             .foregroundStyle(Theme.muted)
-            .opacity(isEnabled ? (configuration.isPressed ? 0.7 : 1) : 0.45)
+            .opacity(isEnabled ? (configuration.isPressed ? 0.7 : 1) : 0.65)
             .padding(.horizontal, 8)
             .frame(height: 24)
             .contentShape(Rectangle())

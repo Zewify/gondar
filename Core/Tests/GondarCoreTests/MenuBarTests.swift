@@ -56,3 +56,10 @@ private func snapshot(_ limits: [UsageLimit]) -> Snapshot {
     #expect(Display.loading.snapshot == nil)
     #expect(Display.unavailable(.offline).snapshot == nil)
 }
+
+@Test func menuBarAccessibilitySaysWhenNotCurrent() {
+    #expect(Display.ready(snapshot([limit(.session, percent: 12)])).menuBarAccessibilityLabel == "Gondar, session 12% used")
+    #expect(Display.stale(snapshot([limit(.session, percent: 12)]), .offline).menuBarAccessibilityLabel == "Gondar, session 12% used, not current")
+    #expect(Display.loading.menuBarAccessibilityLabel == "Gondar")
+    #expect(Display.unavailable(.offline).menuBarAccessibilityLabel == "Gondar")
+}

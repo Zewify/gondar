@@ -33,4 +33,12 @@ extension Display {
         if case .stale = self { return .stale }
         return LimitText.isWarning(session) ? .warning : .normal
     }
+
+    /// What VoiceOver reads for the menu bar item; a kept number is said to be not current.
+    public var menuBarAccessibilityLabel: String {
+        guard let session = sessionLimit else { return "Gondar" }
+        let label = "Gondar, session \(session.percent)% used"
+        if case .stale = self { return label + ", not current" }
+        return label
+    }
 }

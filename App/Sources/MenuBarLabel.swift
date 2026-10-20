@@ -11,7 +11,7 @@ enum MenuBarImage {
     private static let gap: CGFloat = 4
     private static let font = NSFont(name: "IBMPlexMono-SemiBold", size: 13) ?? .monospacedDigitSystemFont(ofSize: 13, weight: .semibold)
 
-    static func image(text: String, tone: MenuBarTone) -> NSImage {
+    static func image(text: String, tone: MenuBarTone, accessibilityLabel: String) -> NSImage {
         let textSize = (text as NSString).size(withAttributes: [.font: font])
         let size = NSSize(width: tileSize + gap + ceil(textSize.width), height: tileSize)
         // Drawn on demand, so it stays sharp at the display's scale and the plain number follows the menu bar's appearance.
@@ -22,7 +22,7 @@ enum MenuBarImage {
             return true
         }
         image.isTemplate = false
-        image.accessibilityDescription = text == "–" ? "Gondar" : "Gondar, session \(text) used"
+        image.accessibilityDescription = accessibilityLabel
         return image
     }
 
@@ -52,8 +52,9 @@ enum MenuBarImage {
 struct MenuBarLabel: View {
     let text: String
     let tone: MenuBarTone
+    let accessibilityLabel: String
 
     var body: some View {
-        Image(nsImage: MenuBarImage.image(text: text, tone: tone))
+        Image(nsImage: MenuBarImage.image(text: text, tone: tone, accessibilityLabel: accessibilityLabel))
     }
 }

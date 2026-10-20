@@ -10,7 +10,11 @@ struct GondarApp: App {
             // Task 7 opens the floating window here.
             PanelView(model: delegate.model, onPopOut: {})
         } label: {
-            MenuBarLabel(text: delegate.model.menuBarText, tone: delegate.model.menuBarTone)
+            MenuBarLabel(
+                text: delegate.model.menuBarText,
+                tone: delegate.model.menuBarTone,
+                accessibilityLabel: delegate.model.menuBarAccessibilityLabel
+            )
         }
         .menuBarExtraStyle(.window)
     }
