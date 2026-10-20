@@ -145,3 +145,39 @@ private func build(api: Snapshot? = nil, feed: FeedSnapshot? = nil, account: Acc
     #expect(sources.snapshot(confirmed: nil, local: profile(theirs, email: "b@example.com"), now: now) == nil)
     #expect(sources.nextExpiry(now: now) == nil)
 }
+
+/// A fresh feed entry the API's later window overrules makes nothing live or newer, so the API is not slowed by it.
+@Test func aFeedEntryOverruledByALaterApiWindowIsNotLive() throws {
+    let reset = now + 3600
+    func limit(_ percent: Int, resetsAt: Date) -> UsageLimit {
+        UsageLimit(kind: .session, scopeName: nil, percent: percent, severity: .normal, resetsAt: resetsAt, isActive: true, shareOfWeekly: nil)
+    }
+    let fromApi = api([limit(3, resetsAt: reset)], at: now - 600)
+    let fresh = feed([limit(95, resetsAt: reset - 120)], at: now - 5)
+    let shown = try #require(build(api: fromApi, feed: fresh))
+    #expect(!shown.live)
+    #expect(shown.fetchedAt == now - 600)
+    #expect(shown.report.limits.map(\.percent) == [3])
+    // The same entry in the API's window does take effect.
+    let same = try #require(build(api: fromApi, feed: feed([limit(95, resetsAt: reset - 119)], at: now - 5)))
+    #expect(same.live && same.fetchedAt == now - 5)
+
+    var sources = UsageSources(now: now - 7200)
+    sources.follow(mine, at: now - 7200)
+    sources.apiAnswered(fromApi)
+    sources.feed = fresh
+    #expect(sources.snapshot(confirmed: nil, local: local, now: now)?.live == false)
+}
+
+@Test func mergeCountingSaysWhichFeedLimitsTookEffect() {
+    let reset = Date(timeIntervalSince1970: 1_792_000_000)
+    let apiReport = UsageReport(limits: [
+        UsageLimit(kind: .session, scopeName: nil, percent: 3, severity: .normal, resetsAt: reset, isActive: true, shareOfWeekly: nil),
+    ], extra: nil)
+    let feed = [
+        UsageLimit(kind: .session, scopeName: nil, percent: 95, severity: .normal, resetsAt: reset - 18_000, isActive: true, shareOfWeekly: nil),
+        UsageLimit(kind: .weeklyAll, scopeName: nil, percent: 20, severity: .normal, resetsAt: nil, isActive: true, shareOfWeekly: nil, position: 1),
+    ]
+    #expect(LimitMerge.mergeCounting(api: apiReport, feed: feed).applied == [1])
+    #expect(LimitMerge.mergeCounting(api: nil, feed: feed).applied == [0, 1])
+}

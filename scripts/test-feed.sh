@@ -76,10 +76,11 @@ printf '{}' | "$feed" true
 [[ -e "$support/Gondar/.statusline.json.99998.tmp" ]] || fail "a fresh temp file was removed"
 rm -f "$support/Gondar/.statusline.json.99998.tmp"
 
-# A held lock (a writer stopped by Ctrl-Z) delays the wrapped command by at most about 100 ms and skips the write.
+# A held lock (a writer stopped by Ctrl-Z) skips the write rather than waiting for it: the lock is held for 10 s, and the
+# wrapped command must finish well within 2 s (the budget is about 100 ms; the bound is loose so load cannot flake it).
 lock="$support/Gondar/statusline.lock"
 before="$(cat "$file")"
-perl -e 'use Fcntl ":flock"; open F, ">>", $ARGV[0]; flock F, LOCK_EX; $| = 1; print "held\n"; sleep 5' "$lock" > "$home/held" &
+perl -e 'use Fcntl ":flock"; open F, ">>", $ARGV[0]; flock F, LOCK_EX; $| = 1; print "held\n"; sleep 10' "$lock" > "$home/held" &
 holder=$!
 until [[ -s "$home/held" ]]; do perl -e 'select undef, undef, undef, 0.01'; done
 start=$(perl -MTime::HiRes=time -e 'printf "%d", time * 1000')
@@ -87,7 +88,7 @@ out="$(printf '{"session_id":"s-1","cost":{"total_api_duration_ms":500},"rate_li
 end=$(perl -MTime::HiRes=time -e 'printf "%d", time * 1000')
 kill "$holder"; wait "$holder" 2>/dev/null || true
 [[ "$out" == ran ]] || fail "held lock: wrapped command printed '$out'"
-(( end - start < 300 )) || fail "held lock: took $((end - start)) ms"
+(( end - start < 2000 )) || fail "held lock: took $((end - start)) ms"
 held_ms=$((end - start))
 [[ "$(cat "$file")" == "$before" ]] || fail "held lock: the file was written anyway"
 

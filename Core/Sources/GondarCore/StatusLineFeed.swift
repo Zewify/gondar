@@ -182,9 +182,15 @@ public enum LimitMerge {
     /// The order is fixed whatever the source: session, weekly all models, scoped limits, then anything else,
     /// each group in the API's order with feed-only entries after, so rows do not jump when the source changes.
     public static func merge(api: UsageReport?, feed: [UsageLimit]) -> UsageReport {
-        var limits = api?.limits ?? []
+        mergeCounting(api: api, feed: feed).report
+    }
 
-        for fresh in feed {
+    /// `merge`, also saying which of `feed` (by index) took effect: every one but those the API's later window overruled.
+    public static func mergeCounting(api: UsageReport?, feed: [UsageLimit]) -> (report: UsageReport, applied: [Int]) {
+        var limits = api?.limits ?? []
+        var applied: [Int] = []
+
+        for (index, fresh) in feed.enumerated() {
             let matches: (UsageLimit) -> Bool = { old in
                 switch fresh.kind {
                 case .weeklyScoped:
@@ -199,7 +205,9 @@ public enum LimitMerge {
                 // Seconds by which the API's window ends after the feed's; nil when either is unknown.
                 let apiLater = old.resetsAt.flatMap { a in fresh.resetsAt.map { b in a.timeIntervalSince(b) } }
                 let sameWindow = apiLater.map { abs($0) < StatusLineFeed.sameWindow } ?? false
-                let replaced = (apiLater ?? 0) >= StatusLineFeed.sameWindow ? old : UsageLimit(
+                if (apiLater ?? 0) >= StatusLineFeed.sameWindow { continue }
+                applied.append(index)
+                let replaced = UsageLimit(
                     kind: old.kind, scopeName: old.scopeName, percent: sameWindow ? max(old.percent, fresh.percent) : fresh.percent,
                     severity: old.severity, resetsAt: fresh.resetsAt, isActive: old.isActive, shareOfWeekly: old.shareOfWeekly,
                     position: old.position
@@ -208,6 +216,7 @@ public enum LimitMerge {
                     index == first ? replaced : (matches(entry) ? nil : entry)
                 }
             } else {
+                applied.append(index)
                 limits.append(fresh)
             }
         }
@@ -224,7 +233,7 @@ public enum LimitMerge {
             let (ra, rb) = (rank(a.element), rank(b.element))
             return ra != rb ? ra < rb : a.offset < b.offset
         }.map(\.element)
-        return UsageReport(limits: ordered, extra: api?.extra)
+        return (UsageReport(limits: ordered, extra: api?.extra), applied)
     }
 }
 
@@ -255,11 +264,13 @@ public enum SnapshotMerge {
         }
         guard let profile = api?.profile ?? header?.profile else { return nil }
 
-        let times = [api?.fetchedAt].compactMap { $0 } + used.map(\.receivedAt)
+        // Only the entries that took effect make the numbers live or newer; one the API's later window overruled does not.
+        let merged = LimitMerge.mergeCounting(api: api?.report, feed: used.map(\.limit))
+        let applied = merged.applied.map { used[$0] }
+        let times = [api?.fetchedAt].compactMap { $0 } + applied.map(\.receivedAt)
         return Snapshot(
-            profile: profile, plan: api != nil ? api?.plan : header?.plan,
-            report: LimitMerge.merge(api: api?.report, feed: used.map(\.limit)),
-            fetchedAt: times.max() ?? now, source: api?.source ?? .claudeCode, live: !used.isEmpty
+            profile: profile, plan: api != nil ? api?.plan : header?.plan, report: merged.report,
+            fetchedAt: times.max() ?? now, source: api?.source ?? .claudeCode, live: !applied.isEmpty
         )
     }
 }
