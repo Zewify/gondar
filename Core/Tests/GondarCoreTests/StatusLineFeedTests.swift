@@ -139,3 +139,45 @@ private func snapshot(_ limits: [UsageLimit], at: Date = received) -> FeedSnapsh
 @Test func feedIntervalIsFifteenMinutes() {
     #expect(PollSchedule.feedInterval == .seconds(900))
 }
+
+@Test func extractWritesOnlyFiniteNumbers() throws {
+    let input = Data(#"{"rate_limits": {"five_hour": {"used_percentage": "/Users/x", "resets_at": true}, "seven_day": {"used_percentage": {"a": "/Users/y"}, "resets_at": "1792000000"}, "seven_day_opus": {"used_percentage": 5, "resets_at": 1792000000}}}"#.utf8)
+    let out = try StatusLineFeed.extract(statusLineJSON: input, receivedAt: received)
+    let text = String(decoding: out, as: UTF8.self)
+    #expect(!text.contains("/Users"))
+    #expect(!text.contains("true"))
+    let limits = try #require((try JSONSerialization.jsonObject(with: out) as? [String: Any])?["rate_limits"] as? [String: Any])
+    #expect(Set(limits.keys) == ["seven_day", "seven_day_opus"])
+    let day = try #require(limits["seven_day"] as? [String: Any])
+    #expect(Set(day.keys) == ["resets_at"] && day["resets_at"] is Double)
+}
+
+@Test func futureDatedFeedIsIgnored() {
+    let api = UsageReport(limits: [limit(.session, nil, 90)], extra: nil)
+    let feed = snapshot([limit(.session, nil, 10)], at: received.addingTimeInterval(3600))
+    let merged = LimitMerge.merge(api: api, feed: feed, feedAccepted: true, now: received)
+    #expect(!merged.live && merged.report.limits.map(\.percent) == [90])
+    #expect(LimitMerge.merge(api: api, feed: snapshot([limit(.session, nil, 10)], at: received.addingTimeInterval(4)), feedAccepted: true, now: received).live)
+}
+
+@Test func replacedLimitKeepsTheApiEntryAndIds() {
+    let api = UsageReport(limits: [
+        UsageLimit(kind: .session, scopeName: nil, percent: 90, severity: .other("warn"), resetsAt: nil, isActive: false, shareOfWeekly: 50, position: 4),
+        limit(.weeklyScoped, "Fable", 30, position: 5),
+    ], extra: nil)
+    let feed = snapshot([limit(.session, nil, 10, position: 0, resetsAt: Date(timeIntervalSince1970: 60)), limit(.weeklyScoped, "Sonnet", 20, position: 2)])
+    let merged = LimitMerge.merge(api: api, feed: feed, feedAccepted: true, now: received).report.limits
+    let ids = merged.map(\.id)
+    #expect(Set(ids).count == ids.count)
+    let session = merged[0]
+    #expect(session.id == api.limits[0].id)
+    #expect(session.percent == 10 && session.resetsAt == Date(timeIntervalSince1970: 60))
+    #expect(session.severity == .other("warn") && !session.isActive && session.shareOfWeekly == 50)
+    #expect(merged.last?.id == "2:weekly_scoped:Sonnet")
+}
+
+@Test func percentIsClampedAndNonPositiveResetsDropped() throws {
+    let feed = try StatusLineFeed.parse(feedJSON(#"{"five_hour": {"used_percentage": 140, "resets_at": 0}, "seven_day": {"used_percentage": -3, "resets_at": -5}}"#))
+    #expect(feed.limits.map(\.percent) == [100, 0])
+    #expect(feed.limits.allSatisfy { $0.resetsAt == nil })
+}

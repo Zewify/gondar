@@ -33,7 +33,7 @@ public enum StatusLineFeed {
             guard let wire = source[entry.key] as? [String: Any] else { continue }
             var fields: [String: Any] = [:]
             for name in ["used_percentage", "resets_at"] {
-                if let value = wire[name], value is NSNumber || value is String { fields[name] = value }
+                if let value = number(wire[name]) { fields[name] = value }
             }
             if !fields.isEmpty { kept[entry.key] = fields }
         }
@@ -57,7 +57,7 @@ public enum StatusLineFeed {
                 let used = number(wire["used_percentage"]), abs(used) < 1_000_000
             else { return nil }
             return UsageLimit(
-                kind: entry.kind, scopeName: entry.scope, percent: Int(used.rounded()), severity: .normal,
+                kind: entry.kind, scopeName: entry.scope, percent: Int(min(max(used, 0), 100).rounded()), severity: .normal,
                 resetsAt: resetDate(wire["resets_at"]), isActive: true, shareOfWeekly: nil, position: entry.position
             )
         }
@@ -78,7 +78,7 @@ public enum StatusLineFeed {
 
     /// Unix seconds, rounded to the nearest minute; a value above 10^11 is milliseconds.
     private static func resetDate(_ value: Any?) -> Date? {
-        guard var seconds = number(value) else { return nil }
+        guard var seconds = number(value), seconds > 0 else { return nil }
         if seconds > 1e11 { seconds /= 1000 }
         return Date(timeIntervalSince1970: (seconds / 60).rounded() * 60)
     }
@@ -93,7 +93,7 @@ public enum LimitMerge {
     /// The order is fixed whatever the source: session, weekly all models, scoped limits, then anything else,
     /// each group in the API's order with feed-only entries after, so rows do not jump when the source changes.
     public static func merge(api: UsageReport?, feed: FeedSnapshot?, feedAccepted: Bool, now: Date) -> (report: UsageReport, live: Bool) {
-        let usable = feed.flatMap { feedAccepted && now.timeIntervalSince($0.receivedAt) < freshness ? $0 : nil }
+        let usable = feed.flatMap { feedAccepted && (-5 ..< freshness).contains(now.timeIntervalSince($0.receivedAt)) ? $0 : nil }
         let feedLimits = usable?.limits ?? []
         var limits = api?.limits ?? []
 
@@ -108,8 +108,14 @@ public enum LimitMerge {
             }
             if let first = limits.firstIndex(where: matches) {
                 // The feed's entry takes the first match's place; any further match of the same limit goes.
-                limits = limits.enumerated().compactMap { index, old in
-                    index == first ? fresh : (matches(old) ? nil : old)
+                // Only the numbers change: the API entry keeps its id, severity, activity and share.
+                let old = limits[first]
+                let replaced = UsageLimit(
+                    kind: old.kind, scopeName: old.scopeName, percent: fresh.percent, severity: old.severity,
+                    resetsAt: fresh.resetsAt, isActive: old.isActive, shareOfWeekly: old.shareOfWeekly, position: old.position
+                )
+                limits = limits.enumerated().compactMap { index, entry in
+                    index == first ? replaced : (matches(entry) ? nil : entry)
                 }
             } else {
                 limits.append(fresh)
