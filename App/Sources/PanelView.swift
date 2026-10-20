@@ -18,10 +18,6 @@ struct PanelView: View {
         .frame(width: 340)
         .background(Theme.panel)
         .environment(\.colorScheme, .dark)
-        .background(PanelWindowObserver(
-            onOpen: model.viewerAppeared,
-            onClose: model.viewerDisappeared,
-            onEscape: { false }
-        ))
+        .background(PanelWindowObserver(onOpen: model.viewerAppeared, onEscape: { false }))
     }
 }

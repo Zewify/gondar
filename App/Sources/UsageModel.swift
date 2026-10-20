@@ -18,7 +18,6 @@ final class UsageModel {
     /// Mirrors `PollSchedule.mayPollNow`: false within a minute of the last poll.
     private(set) var canRefresh = true
 
-    var sessionLimit: UsageLimit? { state.display.sessionLimit }
     var menuBarText: String { state.display.menuBarText }
     var menuBarTone: MenuBarTone { state.display.menuBarTone }
     var menuBarAccessibilityLabel: String { state.display.menuBarAccessibilityLabel }
@@ -40,11 +39,11 @@ final class UsageModel {
     @ObservationIgnored private var watcher: AccountFileWatcher?
     @ObservationIgnored private var workspaceTokens: [NSObjectProtocol] = []
     @ObservationIgnored private var isAsleep = false
-    @ObservationIgnored private var viewers = 0
     /// A SHA-256 of the last token checked against the profile endpoint, held in memory only.
     @ObservationIgnored private var tokenFingerprint: SHA256.Digest?
     @ObservationIgnored private var profile: Profile?
     /// The last account `~/.claude.json` named; nil only until the file has been read successfully.
+    /// The one place the app tracks it: the watcher reports reads and this decides what is a switch.
     @ObservationIgnored private var localAccount: LocalAccount?
 
     private static let logger = Logger(subsystem: "com.zewify.gondar", category: "usage")
@@ -62,10 +61,6 @@ final class UsageModel {
             }
         }
 
-        let watcher = AccountFileWatcher { [weak self] account in self?.accountFileChanged(account) }
-        watcher.start()
-        self.watcher = watcher
-
         let center = NSWorkspace.shared.notificationCenter
         workspaceTokens.append(center.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.willSleep() }
@@ -78,6 +73,10 @@ final class UsageModel {
             let account = await AccountFileWatcher.read()
             guard let self else { return }
             if let account { self.localAccount = account }
+            // Started after the first read, so that read is the baseline and only later writes can be a switch.
+            let watcher = AccountFileWatcher { [weak self] account in self?.accountFileChanged(account) }
+            watcher.start()
+            self.watcher = watcher
             // A relaunch within a minute of the last poll waits out the rest of it.
             self.pollOrWait()
         }
@@ -91,14 +90,8 @@ final class UsageModel {
     /// The panel or the floating window opened: poll once, unless the last poll was under a minute ago.
     /// Not while backing off after a failure: the scheduled retry handles that, and an extra request would prolong a rate limit.
     func viewerAppeared() {
-        viewers += 1
         guard schedule.pollsWhenViewed else { return }
         poll()
-    }
-
-    /// Kept for symmetry with the window controller; polling does not depend on it.
-    func viewerDisappeared() {
-        viewers = max(0, viewers - 1)
     }
 
     // MARK: Polling

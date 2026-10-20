@@ -17,8 +17,6 @@ final class FloatingWindowController: NSObject, NSWindowDelegate {
     private let model: UsageModel
     private let content: @MainActor () -> AnyView
     private var window: NSWindow?
-    /// True while the window counts as a viewer; a minimised window does not, so its refresh pauses.
-    private var isViewing = false
     /// Set once the app starts quitting: the window is closed on the way out, and that close must not forget it was open.
     /// This relies on applicationShouldTerminate always answering .terminateNow; a cancelled quit would leave it set.
     private var isQuitting = false
@@ -76,7 +74,6 @@ final class FloatingWindowController: NSObject, NSWindowDelegate {
         if !window.setFrameUsingName(Self.autosaveName) { window.center() }
         window.setFrameAutosaveName(Self.autosaveName)
         self.window = window
-        isViewing = true
         model.viewerAppeared()
         if activate {
             window.makeKeyAndOrderFront(nil)
@@ -150,16 +147,9 @@ final class FloatingWindowController: NSObject, NSWindowDelegate {
         if let window { centreTrafficLights(in: window) }
     }
 
-    func windowDidMiniaturize(_ notification: Notification) {
-        guard isViewing else { return }
-        isViewing = false
-        model.viewerDisappeared()
-    }
-
+    /// Coming back from the Dock counts as opening it: poll once, as the model allows.
     func windowDidDeminiaturize(_ notification: Notification) {
         if let window { centreTrafficLights(in: window) }
-        guard !isViewing else { return }
-        isViewing = true
         model.viewerAppeared()
     }
 
@@ -170,8 +160,6 @@ final class FloatingWindowController: NSObject, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         if !isQuitting { UserDefaults.standard.set(false, forKey: Self.openKey) }
-        if isViewing { model.viewerDisappeared() }
-        isViewing = false
         window = nil
     }
 }

@@ -1,24 +1,18 @@
 import AppKit
 import SwiftUI
 
-/// Observes the window hosting it and gives that window an Escape handler.
-/// The menu bar panel reports open and close (the model pairs them) and passes an Escape handler that declines the key.
-/// The floating window does not use it: its controller pairs its own viewer calls with show, minimise and close.
+/// Observes the window hosting it, reports each time it opens, and gives that window an Escape handler.
+/// The menu bar panel uses it; the floating window does not, because its controller reports its own opening.
 /// A window-style MenuBarExtra keeps its view alive between openings, so onAppear is not enough;
 /// the panel's window becomes key when shown and resigns key when dismissed.
 struct PanelWindowObserver: NSViewRepresentable {
     var onOpen: @MainActor () -> Void = {}
-    var onClose: @MainActor () -> Void = {}
-    /// The screen the window is on: when it joins a window, each time it is shown, and when it moves to another screen.
-    var onScreen: @MainActor (NSScreen) -> Void = { _ in }
     /// Returns true when it used the key; otherwise Escape reaches the panel and dismisses it.
     let onEscape: @MainActor () -> Bool
 
     func makeNSView(context: Context) -> ObservingView {
         let view = ObservingView()
         view.onOpen = onOpen
-        view.onClose = onClose
-        view.onScreen = onScreen
         view.onEscape = onEscape
         return view
     }
@@ -27,14 +21,12 @@ struct PanelWindowObserver: NSViewRepresentable {
 
     final class ObservingView: NSView {
         var onOpen: (@MainActor () -> Void)?
-        var onClose: (@MainActor () -> Void)?
-        var onScreen: (@MainActor (NSScreen) -> Void)?
         var onEscape: (@MainActor () -> Bool)?
         private var tokens: [NSObjectProtocol] = []
         private var keyMonitor: Any?
 
-        /// True between an onOpen and its matching onClose, so the two always pair up.
-        private var reportedOpen = false
+        /// True from an opening until the window resigns key, so one opening is reported once.
+        private var isOpen = false
 
         isolated deinit {
             if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
@@ -42,19 +34,9 @@ struct PanelWindowObserver: NSViewRepresentable {
         }
 
         private func reportOpen() {
-            guard !reportedOpen else { return }
-            reportedOpen = true
+            guard !isOpen else { return }
+            isOpen = true
             onOpen?()
-        }
-
-        private func reportScreen() {
-            if let screen = window?.screen { onScreen?(screen) }
-        }
-
-        private func reportClose() {
-            guard reportedOpen else { return }
-            reportedOpen = false
-            onClose?()
         }
 
         override func viewDidMoveToWindow() {
@@ -64,20 +46,14 @@ struct PanelWindowObserver: NSViewRepresentable {
             if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
             keyMonitor = nil
             // Leaving a window (or all windows) while it was key counts as closing.
-            reportClose()
+            isOpen = false
             guard let window else { return }
             let center = NotificationCenter.default
             tokens.append(center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    self?.reportScreen()
-                    self?.reportOpen()
-                }
+                MainActor.assumeIsolated { self?.reportOpen() }
             })
             tokens.append(center.addObserver(forName: NSWindow.didResignKeyNotification, object: window, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.reportClose() }
-            })
-            tokens.append(center.addObserver(forName: NSWindow.didChangeScreenNotification, object: window, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.reportScreen() }
+                MainActor.assumeIsolated { self?.isOpen = false }
             })
             // A key monitor sees Escape whatever the panel's focus is, which onKeyPress does not:
             // nothing in the panel holds focus until the user tabs.
@@ -86,7 +62,6 @@ struct PanelWindowObserver: NSViewRepresentable {
                 let used = MainActor.assumeIsolated { self.onEscape?() ?? false }
                 return used ? nil : event
             }
-            reportScreen()
             if window.isKeyWindow { reportOpen() }
         }
     }

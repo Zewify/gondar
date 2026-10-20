@@ -2,12 +2,13 @@ import Foundation
 import GondarCore
 import os
 
-/// Notices when Claude Code signs in to another account or organisation, by watching `~/.claude.json`.
+/// Notices when Claude Code rewrites `~/.claude.json`, and reports the account it then names.
 ///
 /// It watches the home directory rather than the file: Claude Code replaces the file by rename,
 /// and a watch on the file itself would go dead after the first replacement.
-/// Claude Code rewrites the file routinely without any account change, so `onChange` fires only
-/// when the account and organisation pair differs from the last one seen.
+/// Claude Code rewrites the file routinely without any account change; the watcher keeps no account of its own,
+/// so `UsageModel` alone decides what is a switch, against the one account it tracks.
+/// It runs for the life of the app, so it is never stopped.
 @MainActor
 final class AccountFileWatcher {
     nonisolated static let fileURL = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".claude.json")
@@ -15,8 +16,6 @@ final class AccountFileWatcher {
     private let onChange: @MainActor (LocalAccount?) -> Void
     private var source: DispatchSourceFileSystemObject?
     private var lastModified: Date?
-    private var lastSeen: LocalAccount?
-    private var hasSeen = false
     private var pending: Task<Void, Never>?
 
     private static let logger = Logger(subsystem: "com.zewify.gondar", category: "account")
@@ -40,20 +39,6 @@ final class AccountFileWatcher {
         self.source = source
         lastModified = Self.modificationDate()
         source.resume()
-        // The account at start is the baseline, not a change.
-        pending = Task { [weak self] in
-            let account = await Self.read()
-            guard let self, !Task.isCancelled, !self.hasSeen else { return }
-            self.lastSeen = account
-            self.hasSeen = true
-        }
-    }
-
-    func stop() {
-        pending?.cancel()
-        pending = nil
-        source?.cancel()
-        source = nil
     }
 
     /// The signed-in account in `~/.claude.json`, read off the main actor (the file runs to hundreds of kilobytes).
@@ -75,13 +60,7 @@ final class AccountFileWatcher {
             guard !Task.isCancelled else { return }
             let account = await Self.read()
             guard let self, !Task.isCancelled else { return }
-            let isChange = self.hasSeen && account != self.lastSeen
-            self.lastSeen = account
-            self.hasSeen = true
-            if isChange {
-                Self.logger.info("The signed-in account changed")
-                self.onChange(account)
-            }
+            self.onChange(account)
         }
     }
 
