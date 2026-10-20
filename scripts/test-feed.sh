@@ -32,6 +32,30 @@ if [[ -f "$file" ]]; then
   grep -q '"received_at"' "$file" || fail "file lacks received_at"
 fi
 
+# Input without limits (a new or API-key session) leaves the stored numbers alone.
+before="$(cat "$file")"
+printf '{}' | "$feed" true
+printf '{"cwd":"/x","rate_limits":null}' | "$feed" true
+[[ "$(cat "$file")" == "$before" ]] || fail "input without limits changed the file"
+
+# A new window replaces the old; then an idle session re-sending an older, lower number for it does not lower it.
+printf '{"rate_limits":{"five_hour":{"used_percentage":40,"resets_at":1790018000}}}' | "$feed" true
+printf '{"rate_limits":{"five_hour":{"used_percentage":20,"resets_at":1790018000}}}' | "$feed" true
+grep -q '"used_percentage":40' "$file" || fail "same window at 20 % replaced 40 %: $(cat "$file")"
+grep -q '"seven_day"' "$file" || fail "a limit the input lacked was dropped"
+
+# A temp file a killed writer left behind goes once it is a minute old; a fresh one stays.
+touch -t 202001010000 "$support/Gondar/.statusline.json.99999.tmp"
+touch "$support/Gondar/.statusline.json.99998.tmp"
+printf '{}' | "$feed" true
+[[ ! -e "$support/Gondar/.statusline.json.99999.tmp" ]] || fail "a stale temp file was left"
+[[ -e "$support/Gondar/.statusline.json.99998.tmp" ]] || fail "a fresh temp file was removed"
+rm -f "$support/Gondar/.statusline.json.99998.tmp"
+
+# A closed stdin still runs the wrapped command.
+out="$("$feed" echo ran <&-)" && status=0 || status=$?
+[[ "$out" == ran && $status == 0 ]] || fail "closed stdin: got '$out', status $status"
+
 # A large input reaches a child that never reads stdin without hanging.
 big="$(head -c 2000000 /dev/zero | tr '\0' 'a')"
 printf '%s' "$big" | "$feed" true || fail "a child that ignores a large stdin did not exit 0"

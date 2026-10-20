@@ -27,21 +27,72 @@ public enum StatusLineFeed {
         guard let object = try? JSONSerialization.jsonObject(with: statusLineJSON) as? [String: Any] else {
             throw ParseError("The status line input is not a JSON object")
         }
-        let source = object["rate_limits"] as? [String: Any] ?? [:]
-        var kept: [String: Any] = [:]
+        return try stored(limits(in: object["rate_limits"]), receivedAt: receivedAt)
+    }
+
+    /// The feed file after Claude Code's input `incoming` arrives, or nil when the file should stay as it is.
+    /// Several sessions write the one file, and an idle session re-sends its last numbers on every refresh, so it merges per limit:
+    /// in the same window (reset times equal to the minute) the higher number wins, since usage only rises within a window;
+    /// a later window replaces an earlier one; an earlier window and a limit the input lacks leave the stored entry alone.
+    /// The time moves only when a session reported a stored window or changed an entry. An unreadable `existing` counts as none.
+    public static func mergeStored(existing: Data?, incoming: Data, receivedAt: Date) -> Data? {
+        guard let input = try? JSONSerialization.jsonObject(with: incoming) as? [String: Any] else { return nil }
+        let reported = limits(in: input["rate_limits"])
+        guard !reported.isEmpty else { return nil }
+        let old = existing.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        var merged = limits(in: old?["rate_limits"])
+        var fresh = false
+        for (key, new) in reported {
+            guard let current = merged[key] else {
+                merged[key] = new
+                fresh = true
+                continue
+            }
+            let (newReset, oldReset) = (new["resets_at"].map(minute), current["resets_at"].map(minute))
+            if let newReset, let oldReset, newReset != oldReset {
+                if newReset > oldReset {
+                    merged[key] = new
+                    fresh = true
+                }
+                continue
+            }
+            // The same window, or one whose reset time is unknown on a side: keep the higher number and any reset time.
+            fresh = true
+            var kept = current
+            if let used = new["used_percentage"], used > current["used_percentage"] ?? -.infinity { kept["used_percentage"] = used }
+            if kept["resets_at"] == nil { kept["resets_at"] = new["resets_at"] }
+            merged[key] = kept
+        }
+        guard fresh else { return nil }
+        return try? stored(merged, receivedAt: receivedAt)
+    }
+
+    /// The mapped limits in a `rate_limits` value, each with only its finite `used_percentage` and `resets_at`.
+    private static func limits(in value: Any?) -> [String: [String: Double]] {
+        let source = value as? [String: Any] ?? [:]
+        var kept: [String: [String: Double]] = [:]
         for entry in mapping {
             guard let wire = source[entry.key] as? [String: Any] else { continue }
-            var fields: [String: Any] = [:]
+            var fields: [String: Double] = [:]
             for name in ["used_percentage", "resets_at"] {
                 if let value = number(wire[name]) { fields[name] = value }
             }
             if !fields.isEmpty { kept[entry.key] = fields }
         }
+        return kept
+    }
+
+    private static func stored(_ limits: [String: [String: Double]], receivedAt: Date) throws -> Data {
         let output: [String: Any] = [
             "received_at": Int(receivedAt.timeIntervalSince1970.rounded()),
-            "rate_limits": kept,
+            "rate_limits": limits,
         ]
         return try JSONSerialization.data(withJSONObject: output, options: [.sortedKeys])
+    }
+
+    /// Unix seconds (or milliseconds) as whole minutes, for comparing windows.
+    private static func minute(_ value: Double) -> Double {
+        ((value > 1e11 ? value / 1000 : value) / 60).rounded()
     }
 
     /// Reads the file `extract` wrote. A missing or null `rate_limits` is an empty feed; a limit that cannot be read is skipped.

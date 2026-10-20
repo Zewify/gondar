@@ -181,3 +181,69 @@ private func snapshot(_ limits: [UsageLimit], at: Date = received) -> FeedSnapsh
     #expect(feed.limits.map(\.percent) == [100, 0])
     #expect(feed.limits.allSatisfy { $0.resetsAt == nil })
 }
+
+// MARK: - Merging into the stored file
+
+private func statusLine(_ rateLimits: String) -> Data {
+    Data(#"{"cwd": "/example", "session_id": "s", "rate_limits": \#(rateLimits)}"#.utf8)
+}
+
+private func stored(_ data: Data?) throws -> (receivedAt: Int, limits: [String: [String: Double]]) {
+    let bytes = try #require(data)
+    let object = try #require(try JSONSerialization.jsonObject(with: bytes) as? [String: Any])
+    let limits = try #require(object["rate_limits"] as? [String: [String: Double]])
+    return (try #require(object["received_at"] as? Int), limits)
+}
+
+private let later = Date(timeIntervalSince1970: 1_791_990_600)
+
+@Test func mergeKeepsTheHigherNumberInTheSameWindow() throws {
+    let existing = feedJSON(#"{"five_hour": {"used_percentage": 40, "resets_at": 1792000000}}"#)
+    // An idle session re-sends an older, lower number for the same window (reset time equal to the minute).
+    let lower = StatusLineFeed.mergeStored(existing: existing, incoming: statusLine(#"{"five_hour": {"used_percentage": 20, "resets_at": 1792000010}}"#), receivedAt: later)
+    let kept = try stored(lower)
+    #expect(kept.limits["five_hour"]?["used_percentage"] == 40)
+    #expect(kept.limits["five_hour"]?["resets_at"] == 1_792_000_000)
+    // A session reported this window, so the data counts as fresh.
+    #expect(kept.receivedAt == 1_791_990_600)
+
+    let higher = try stored(StatusLineFeed.mergeStored(existing: existing, incoming: statusLine(#"{"five_hour": {"used_percentage": 55, "resets_at": 1792000000}}"#), receivedAt: later))
+    #expect(higher.limits["five_hour"]?["used_percentage"] == 55)
+}
+
+@Test func mergeTakesANewWindowAndIgnoresAnOlderOne() throws {
+    let existing = feedJSON(#"{"five_hour": {"used_percentage": 90, "resets_at": 1792000000}}"#)
+    let newer = try stored(StatusLineFeed.mergeStored(existing: existing, incoming: statusLine(#"{"five_hour": {"used_percentage": 3, "resets_at": 1792018000}}"#), receivedAt: later))
+    #expect(newer.limits["five_hour"] == ["used_percentage": 3, "resets_at": 1_792_018_000])
+    #expect(newer.receivedAt == 1_791_990_600)
+    // An older window changes nothing, so nothing is written.
+    #expect(StatusLineFeed.mergeStored(existing: existing, incoming: statusLine(#"{"five_hour": {"used_percentage": 99, "resets_at": 1791982000}}"#), receivedAt: later) == nil)
+}
+
+@Test func mergeKeepsLimitsTheInputLacks() throws {
+    let existing = feedJSON(#"{"five_hour": {"used_percentage": 40, "resets_at": 1792000000}, "seven_day": {"used_percentage": 12, "resets_at": 1792400000}}"#)
+    let merged = try stored(StatusLineFeed.mergeStored(existing: existing, incoming: statusLine(#"{"five_hour": {"used_percentage": 41, "resets_at": 1792000000}}"#), receivedAt: later))
+    #expect(merged.limits["five_hour"]?["used_percentage"] == 41)
+    #expect(merged.limits["seven_day"] == ["used_percentage": 12, "resets_at": 1_792_400_000])
+    let raw = StatusLineFeed.mergeStored(existing: existing, incoming: statusLine(#"{"five_hour": {"used_percentage": 41, "resets_at": 1792000000}}"#), receivedAt: later) ?? Data()
+    #expect(!String(decoding: raw, as: UTF8.self).contains("example"))
+}
+
+@Test func mergeWritesNothingWithoutLimits() {
+    let existing = feedJSON(#"{"five_hour": {"used_percentage": 40, "resets_at": 1792000000}}"#)
+    for input in [#"{"cwd": "/example"}"#, #"{"rate_limits": null}"#, #"{"rate_limits": {}}"#, "not json"] {
+        #expect(StatusLineFeed.mergeStored(existing: existing, incoming: Data(input.utf8), receivedAt: later) == nil)
+        #expect(StatusLineFeed.mergeStored(existing: nil, incoming: Data(input.utf8), receivedAt: later) == nil)
+    }
+}
+
+@Test func mergeTreatsACorruptFileAsNone() throws {
+    let incoming = statusLine(#"{"five_hour": {"used_percentage": 5, "resets_at": 1792000000}}"#)
+    for existing in [Data("{trunc".utf8), Data(#"{"rate_limits": 4}"#.utf8), Data()] {
+        let merged = try stored(StatusLineFeed.mergeStored(existing: existing, incoming: incoming, receivedAt: later))
+        #expect(merged.limits == ["five_hour": ["used_percentage": 5, "resets_at": 1_792_000_000]])
+        #expect(merged.receivedAt == 1_791_990_600)
+    }
+    let fresh = try stored(StatusLineFeed.mergeStored(existing: nil, incoming: incoming, receivedAt: later))
+    #expect(fresh.limits.keys.sorted() == ["five_hour"])
+}

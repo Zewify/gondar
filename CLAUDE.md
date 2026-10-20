@@ -9,8 +9,8 @@ Plan: `docs/superpowers/plans/2026-10-20-gondar-app.md`.
 - `Core/` — the `GondarCore` Swift package: every rule, Foundation only.
 - `App/` — the thin SwiftUI menu bar app.
 - `Feed/` — `gondar-feed`, a command-line tool shipped at `Gondar.app/Contents/MacOS/gondar-feed`.
-  Claude Code's status line command wraps through it: it saves only `rate_limits` and the time to `~/Library/Application Support/Gondar/statusline.json` (atomic, 0600), then runs the wrapped command with the same stdin, its output inherited and its exit status passed through.
-  The person wires it by hand in `~/.claude/settings.json`, as `"statusLine": {"type": "command", "command": "/Applications/Gondar.app/Contents/MacOS/gondar-feed npx -y example-statusline"}` (the existing command after the tool's path); Gondar never edits that file.
+  Claude Code's status line command wraps through it: it merges only `rate_limits` and the time into `~/Library/Application Support/Gondar/statusline.json` (atomic, 0600; per limit the higher number in the same window, a later window replacing an earlier one, so idle sessions re-sending old numbers cannot lower it), then runs the wrapped command with the same stdin, its output inherited and its exit status passed through.
+  The person wires it by hand in `~/.claude/settings.json`, changing only `statusLine.command` (leave `padding`, `refreshInterval` and the rest as they are) to the tool's path followed by the existing command, for example `"/Applications/Gondar.app/Contents/MacOS/gondar-feed" npx -y example-statusline`. Gondar never edits that file.
 
 ## Commands
 
