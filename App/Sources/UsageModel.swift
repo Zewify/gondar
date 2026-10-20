@@ -46,7 +46,7 @@ final class UsageModel {
     /// A SHA-256 of the last token checked against the profile endpoint, held in memory only.
     @ObservationIgnored private var tokenFingerprint: SHA256.Digest?
     @ObservationIgnored private var profile: Profile?
-    /// The account `~/.claude.json` names; nil when the file is missing or unreadable.
+    /// The last account `~/.claude.json` named; nil only until the file has been read successfully.
     @ObservationIgnored private var localAccount: LocalAccount?
 
     private static let logger = Logger(subsystem: "com.zewify.gondar", category: "usage")
@@ -77,7 +77,7 @@ final class UsageModel {
         Task { [weak self] in
             let account = await AccountFileWatcher.read()
             guard let self else { return }
-            self.localAccount = account
+            if let account { self.localAccount = account }
             self.poll()
         }
     }
@@ -132,18 +132,27 @@ final class UsageModel {
         lastAttempt = Date()
         updateCanRefresh()
 
-        guard let keychainValue = await CredentialReader.read() else {
-            guard isCurrent() else { return nil }
+        let keychainValue: String
+        let read = await CredentialReader.read()
+        guard isCurrent() else { return nil }
+        switch read {
+        case .item(let value):
+            keychainValue = value
+        case .noItem:
             tokenFingerprint = nil
             profile = nil
             state.accountChanged(to: nil)
             return PollSchedule.interval
+        case .failed:
+            // Not the same as signed out: keep the account and its numbers, marked stale.
+            Self.logger.error("Couldn't read Claude Code's login from the Keychain")
+            state.failed(.keychainUnreadable)
+            return PollSchedule.interval
         }
-        guard isCurrent() else { return nil }
 
         guard let credentials = try? ClaudeCodeCredentials.parse(keychainValue: keychainValue) else {
             Self.logger.error("Claude Code's login is not in the expected shape")
-            state.failed(.unreadableResponse)
+            state.failed(.keychainUnreadable)
             return PollSchedule.interval
         }
         if credentials.isExpired(at: Date()) {
@@ -157,12 +166,12 @@ final class UsageModel {
             switch await client.profile(token: credentials.accessToken) {
             case .success(let fetched):
                 guard isCurrent() else { return nil }
-                if let local = localAccount, local.accountUUID != fetched.accountUUID {
+                if let local = localAccount, local.key != fetched.accountKey {
                     // The watcher may not have caught up; read the file once before deciding.
                     let fresh = await AccountFileWatcher.read()
                     guard isCurrent() else { return nil }
-                    localAccount = fresh
-                    if let fresh, fresh.accountUUID != fetched.accountUUID {
+                    if let fresh { localAccount = fresh }
+                    if let fresh, fresh.key != fetched.accountKey {
                         // A switch half done: the token and the file name different accounts. Keep what is shown and look again.
                         Self.logger.info("The token and the account file disagree; waiting")
                         return PollSchedule.minimumGap
@@ -170,7 +179,7 @@ final class UsageModel {
                 }
                 tokenFingerprint = fingerprint
                 profile = fetched
-                state.accountChanged(to: fetched.accountUUID)
+                state.accountChanged(to: fetched.accountKey)
             case .failure(let error):
                 guard isCurrent() else { return nil }
                 return record(error)
@@ -244,11 +253,14 @@ final class UsageModel {
 
     // MARK: Account changes, sleep and wake
 
+    /// Only a real pair that differs from the last real pair is a switch; a file briefly missing or
+    /// half-written (nil) is not, and must not bypass the one-minute floor.
     private func accountFileChanged(_ account: LocalAccount?) {
+        guard let account, account != localAccount else { return }
         tokenFingerprint = nil
         localAccount = account
         // Drop the previous account's numbers at once; the poll fills in the new one's.
-        if let account { state.accountChanged(to: account.accountUUID) }
+        state.accountChanged(to: account.key)
         poll(afterAccountChange: true)
     }
 

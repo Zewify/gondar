@@ -21,11 +21,12 @@ public struct Snapshot: Sendable, Equatable {
 }
 
 public enum Problem: Sendable, Equatable {
-    case claudeCodeNotSignedIn, tokenExpired, unauthorized, rateLimited, offline, unreadableResponse
+    case claudeCodeNotSignedIn, keychainUnreadable, tokenExpired, unauthorized, rateLimited, offline, unreadableResponse
 
     public var message: String {
         switch self {
         case .claudeCodeNotSignedIn: "Sign in to Claude Code, or to claude.ai below."
+        case .keychainUnreadable: "Couldn't read Claude Code's login from the Keychain."
         case .tokenExpired: "Open Claude Code to refresh."
         case .unauthorized: "Claude Code's login was refused. Sign in to Claude Code again."
         case .rateLimited: "Asked too often. Trying again shortly."
@@ -35,6 +36,25 @@ public enum Problem: Sendable, Equatable {
     }
 }
 
+/// Which numbers are which: an account within one organisation. Switching either is a different account to show.
+public struct AccountKey: Sendable, Equatable {
+    public let accountUUID: String
+    public let organizationUUID: String
+
+    public init(accountUUID: String, organizationUUID: String) {
+        self.accountUUID = accountUUID
+        self.organizationUUID = organizationUUID
+    }
+}
+
+extension Profile {
+    public var accountKey: AccountKey { AccountKey(accountUUID: accountUUID, organizationUUID: organizationUUID) }
+}
+
+extension LocalAccount {
+    public var key: AccountKey { AccountKey(accountUUID: accountUUID, organizationUUID: organizationUUID) }
+}
+
 public enum Display: Sendable, Equatable {
     case loading
     case ready(Snapshot)
@@ -42,22 +62,22 @@ public enum Display: Sendable, Equatable {
     case unavailable(Problem)
 }
 
-/// What the panel shows. Numbers belong to one account; a switch or sign-out drops them.
+/// What the panel shows. Numbers belong to one account in one organisation; a switch of either, or a sign-out, drops them.
 public struct UsageState: Sendable, Equatable {
     public private(set) var display: Display = .loading
-    public private(set) var accountUUID: String? = nil
+    public private(set) var account: AccountKey? = nil
 
     public init() {}
 
-    public mutating func accountChanged(to accountUUID: String?) {
+    public mutating func accountChanged(to account: AccountKey?) {
         // A fresh state is .loading with no account; going to nil is a change from it.
-        if accountUUID == self.accountUUID, !(accountUUID == nil && display == .loading) { return }
-        self.accountUUID = accountUUID
-        display = accountUUID == nil ? .unavailable(.claudeCodeNotSignedIn) : .loading
+        if account == self.account, !(account == nil && display == .loading) { return }
+        self.account = account
+        display = account == nil ? .unavailable(.claudeCodeNotSignedIn) : .loading
     }
 
     public mutating func received(_ snapshot: Snapshot) {
-        guard snapshot.profile.accountUUID == accountUUID else { return }
+        guard let account, snapshot.profile.accountKey == account else { return }
         display = .ready(snapshot)
     }
 

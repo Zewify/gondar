@@ -22,6 +22,18 @@ enum FetchError: Error, Equatable, Sendable {
     }
 }
 
+/// Follows a redirect only within api.anthropic.com, so the bearer token can never be carried to another host.
+/// A refused redirect reaches the client as its 3xx response, which reads as unreadable.
+private final class RedirectGuard: NSObject, URLSessionTaskDelegate, Sendable {
+    func urlSession(
+        _ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest
+    ) async -> URLRequest? {
+        guard request.url?.scheme == "https", request.url?.host == "api.anthropic.com" else { return nil }
+        return request
+    }
+}
+
 /// The two OAuth endpoints Claude Code's token can read: usage and the profile behind the token.
 struct AnthropicClient: Sendable {
     private static let baseURL = URL(string: "https://api.anthropic.com/api/oauth/")!
@@ -37,7 +49,7 @@ struct AnthropicClient: Sendable {
         configuration.httpCookieStorage = nil
         configuration.timeoutIntervalForRequest = 20
         configuration.timeoutIntervalForResource = 20
-        session = URLSession(configuration: configuration)
+        session = URLSession(configuration: configuration, delegate: RedirectGuard(), delegateQueue: nil)
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
         userAgent = "Gondar/\(version)"
     }

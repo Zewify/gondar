@@ -3,10 +3,14 @@ import Testing
 
 @testable import GondarCore
 
-private func snap(account: String) -> Snapshot {
+private func key(_ account: String, org: String = "org") -> AccountKey {
+    AccountKey(accountUUID: account, organizationUUID: org)
+}
+
+private func snap(account: String, org: String = "org") -> Snapshot {
     Snapshot(
         profile: Profile(
-            accountUUID: account, email: "\(account)@example.com", organizationUUID: "org",
+            accountUUID: account, email: "\(account)@example.com", organizationUUID: org,
             organizationName: "Org", organizationType: nil, rateLimitTier: nil, seatTier: nil),
         plan: "Max",
         report: UsageReport(limits: [], extra: nil),
@@ -16,45 +20,45 @@ private func snap(account: String) -> Snapshot {
 
 @Test func startsLoadingForNewAccount() {
     var state = UsageState()
-    state.accountChanged(to: "a")
+    state.accountChanged(to: key("a"))
     #expect(state.display == .loading)
-    #expect(state.accountUUID == "a")
+    #expect(state.account == key("a"))
 }
 
 @Test func showsSnapshotForCurrentAccount() {
     var state = UsageState()
-    state.accountChanged(to: "a")
+    state.accountChanged(to: key("a"))
     state.received(snap(account: "a"))
     #expect(state.display == .ready(snap(account: "a")))
 }
 
 @Test func dropsSnapshotForPreviousAccount() {
     var state = UsageState()
-    state.accountChanged(to: "a")
-    state.accountChanged(to: "b")
+    state.accountChanged(to: key("a"))
+    state.accountChanged(to: key("b"))
     state.received(snap(account: "a"))
     #expect(state.display == .loading)
 }
 
 @Test func switchingClearsOldNumbers() {
     var state = UsageState()
-    state.accountChanged(to: "a")
+    state.accountChanged(to: key("a"))
     state.received(snap(account: "a"))
-    state.accountChanged(to: "b")
+    state.accountChanged(to: key("b"))
     #expect(state.display == .loading)
 }
 
 @Test func sameAccountKeepsNumbers() {
     var state = UsageState()
-    state.accountChanged(to: "a")
+    state.accountChanged(to: key("a"))
     state.received(snap(account: "a"))
-    state.accountChanged(to: "a")
+    state.accountChanged(to: key("a"))
     #expect(state.display == .ready(snap(account: "a")))
 }
 
 @Test func signedOutIsUnavailable() {
     var state = UsageState()
-    state.accountChanged(to: "a")
+    state.accountChanged(to: key("a"))
     state.received(snap(account: "a"))
     state.accountChanged(to: nil)
     #expect(state.display == .unavailable(.claudeCodeNotSignedIn))
@@ -64,7 +68,7 @@ private func snap(account: String) -> Snapshot {
 
 @Test func staleKeepsLastSnapshot() {
     var state = UsageState()
-    state.accountChanged(to: "a")
+    state.accountChanged(to: key("a"))
     state.received(snap(account: "a"))
     state.failed(.offline)
     #expect(state.display == .stale(snap(account: "a"), .offline))
@@ -85,14 +89,15 @@ private func snap(account: String) -> Snapshot {
     #expect(Problem.rateLimited.message == "Asked too often. Trying again shortly.")
     #expect(Problem.offline.message == "Offline.")
     #expect(Problem.unreadableResponse.message == "Anthropic changed the usage format. An update is needed.")
+    #expect(Problem.keychainUnreadable.message == "Couldn't read Claude Code's login from the Keychain.")
 }
 
 @Test func switchingAwayFromStaleDropsOldNumbers() {
     var state = UsageState()
-    state.accountChanged(to: "a")
+    state.accountChanged(to: key("a"))
     state.received(snap(account: "a"))
     state.failed(.offline)
-    state.accountChanged(to: "b")
+    state.accountChanged(to: key("b"))
     #expect(state.display == .loading)
     state.failed(.offline)
     #expect(state.display == .unavailable(.offline))
@@ -100,7 +105,7 @@ private func snap(account: String) -> Snapshot {
 
 @Test func recoversFromStale() {
     var state = UsageState()
-    state.accountChanged(to: "a")
+    state.accountChanged(to: key("a"))
     state.received(snap(account: "a"))
     state.failed(.offline)
     var newer = snap(account: "a")
@@ -111,7 +116,7 @@ private func snap(account: String) -> Snapshot {
 
 @Test func recoversFromUnavailable() {
     var state = UsageState()
-    state.accountChanged(to: "a")
+    state.accountChanged(to: key("a"))
     state.failed(.unauthorized)
     #expect(state.display == .unavailable(.unauthorized))
     state.received(snap(account: "a"))
@@ -120,7 +125,7 @@ private func snap(account: String) -> Snapshot {
 
 @Test func signedOutIgnoresSnapshots() {
     var state = UsageState()
-    state.accountChanged(to: "a")
+    state.accountChanged(to: key("a"))
     state.accountChanged(to: nil)
     state.received(snap(account: "a"))
     #expect(state.display == .unavailable(.claudeCodeNotSignedIn))
@@ -138,4 +143,28 @@ private func snap(account: String) -> Snapshot {
     state.failed(.offline)
     state.accountChanged(to: nil)
     #expect(state.display == .unavailable(.offline))
+}
+
+@Test func organisationOnlySwitchDropsNumbers() {
+    var state = UsageState()
+    state.accountChanged(to: key("a", org: "one"))
+    state.received(snap(account: "a", org: "one"))
+    state.accountChanged(to: key("a", org: "two"))
+    #expect(state.display == .loading)
+    #expect(state.account == key("a", org: "two"))
+}
+
+@Test func ignoresSnapshotForSameAccountInAnotherOrganisation() {
+    var state = UsageState()
+    state.accountChanged(to: key("a", org: "two"))
+    state.received(snap(account: "a", org: "one"))
+    #expect(state.display == .loading)
+    state.received(snap(account: "a", org: "two"))
+    #expect(state.display == .ready(snap(account: "a", org: "two")))
+}
+
+@Test func accountKeysFromProfileAndAccountFile() {
+    let profile = snap(account: "a", org: "one").profile
+    #expect(profile.accountKey == key("a", org: "one"))
+    #expect(LocalAccount(accountUUID: "a", organizationUUID: "one").key == key("a", org: "one"))
 }
