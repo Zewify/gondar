@@ -2,6 +2,8 @@ import Foundation
 
 public struct PollSchedule: Sendable, Equatable {
     public static let interval: Duration = .seconds(120)
+    /// How often the API is asked while Claude Code's status line feed is fresh: only for what the feed lacks.
+    public static let feedInterval: Duration = .seconds(900)
     public static let minimumGap: Duration = .seconds(60)
     private static let longestDelay: Duration = .seconds(1800)
 

@@ -1,0 +1,13 @@
+{
+  "session_id": "00000000-0000-0000-0000-000000000000",
+  "transcript_path": "/example/transcript.jsonl",
+  "cwd": "/example/project",
+  "model": { "id": "claude-example", "display_name": "Example" },
+  "cost": { "total_cost_usd": 1.23 },
+  "rate_limits": {
+    "five_hour": { "used_percentage": 36.4, "resets_at": 1792000000 },
+    "seven_day": { "used_percentage": 12, "resets_at": 1792400000 },
+    "seven_day_sonnet": { "used_percentage": "7.6", "resets_at": 1792400030 },
+    "seven_day_opus": null
+  }
+}
