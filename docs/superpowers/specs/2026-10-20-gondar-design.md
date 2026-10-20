@@ -1,6 +1,6 @@
 # Gondar — design
 
-Gondar is a working name, and the real one is picked before release.
+Gondar is the app's name.
 It is a free Mac menu bar app with an always-on-top floating window that shows a Claude subscription's usage limits: the current session, the weekly limits for all models and for each scoped model (Fable today), and when each one resets.
 It is a Zewify product.
 
