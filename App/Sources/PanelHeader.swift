@@ -47,11 +47,17 @@ struct PanelHeader: View {
                 }
                 Spacer(minLength: 0)
                 // The narrow window shows the email alone while the numbers are current, and their age once they are not.
+                // Where the numbers come from sits under it; the narrow window has no room for it.
                 if !compact || problem != nil {
-                    Text(verbatim: UpdatedText.text(fetchedAt: snapshot.fetchedAt, now: model.now))
-                        .font(Theme.body(12))
-                        .foregroundStyle(Theme.muted)
-                        .fixedSize()
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text(verbatim: UpdatedText.text(fetchedAt: snapshot.fetchedAt, now: model.now))
+                        if !compact {
+                            Text(verbatim: Self.sourceLine(snapshot.source))
+                        }
+                    }
+                    .font(Theme.body(12))
+                    .foregroundStyle(Theme.muted)
+                    .fixedSize()
                 }
             }
             if let problem {
@@ -60,6 +66,13 @@ struct PanelHeader: View {
                     .foregroundStyle(Theme.amber)
                     .fixedSize(horizontal: false, vertical: true)
             }
+        }
+    }
+
+    private static func sourceLine(_ source: Source) -> String {
+        switch source {
+        case .claudeCode: "From Claude Code"
+        case .claudeAI: "From claude.ai"
         }
     }
 

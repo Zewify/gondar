@@ -2,9 +2,9 @@ import AppKit
 import GondarCore
 import SwiftUI
 
-/// Where the numbers come from, then Settings, Pop out, Refresh and Quit, in PortGlimpse's footer styling,
+/// Settings, Pop out, Refresh and Quit, in PortGlimpse's footer styling,
 /// with an update row above them when a newer release exists (never while `UpdateChecker.feed` is nil).
-/// The floating window passes no `onPopOut`, which hides Pop out; when it is too narrow for the source line, the line goes.
+/// The floating window passes no `onPopOut`, which hides Pop out.
 /// `compact` matches the narrow window's 12-point inset; the trailing padding plus the buttons' own 8 makes the same visible edge.
 struct PanelFooter: View {
     let model: UsageModel
@@ -19,10 +19,7 @@ struct PanelFooter: View {
                 updateRow(version)
                 Divider().overlay(Theme.line)
             }
-            ViewThatFits(in: .horizontal) {
-                row(showingSource: true)
-                row(showingSource: false)
-            }
+            row
             .padding(.leading, inset)
             .padding(.trailing, compact ? 4 : 10)
             .padding(.vertical, 10)
@@ -49,27 +46,24 @@ struct PanelFooter: View {
     }
 
     private var settingsMenu: some View {
-        Menu("Settings") {
+        Menu {
             Toggle("Launch at login", isOn: Binding(get: { loginItem.isEnabled }, set: { loginItem.set($0) }))
             if UpdateChecker.feed != nil {
                 Toggle("Check for updates", isOn: $updates.isEnabled)
             }
+        } label: {
+            // A borderless Menu draws its title in the system label colour and ignores foregroundStyle on a plain string;
+            // a styled label view is respected.
+            Text("Settings")
+                .font(Theme.body(13, .semibold))
+                .foregroundStyle(Theme.muted)
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
-        .font(Theme.body(13, .semibold))
-        .foregroundStyle(Theme.muted)
     }
 
-    private func row(showingSource: Bool) -> some View {
+    private var row: some View {
         HStack(spacing: 4) {
-            if showingSource {
-                Text(verbatim: sourceLine)
-                    .font(Theme.body(12))
-                    .foregroundStyle(Theme.muted)
-                    .lineLimit(1)
-                    .fixedSize()
-            }
             Spacer(minLength: 4)
             settingsMenu
             if let onPopOut {
@@ -79,13 +73,6 @@ struct PanelFooter: View {
                 .disabled(!model.canRefresh)
                 .help(model.canRefresh ? "Check usage now" : "Checked under a minute ago")
             footerButton("Quit") { NSApp.terminate(nil) }
-        }
-    }
-
-    private var sourceLine: String {
-        switch model.state.display.snapshot?.source ?? .claudeCode {
-        case .claudeCode: "From Claude Code"
-        case .claudeAI: "From claude.ai"
         }
     }
 
