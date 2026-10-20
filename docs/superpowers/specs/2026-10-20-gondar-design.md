@@ -89,7 +89,8 @@ Claude Code records the signed-in account in `~/.claude.json` under `oauthAccoun
 The app reads it on every poll and also watches the file, so a switch shows within seconds rather than at the next poll.
 When `accountUuid` or `organizationUuid` changes, the app throws away the previous account's numbers at once and polls immediately; it must never show one account's numbers under another account's name, even for a moment, and shows a loading state instead.
 The Keychain token itself carries no readable account ID, so the builder checks that it belongs to the account in `~/.claude.json` (the `api.anthropic.com/api/oauth/profile` endpoint is the first thing to try, once per token, not every poll); if the two disagree in the middle of a switch, the app waits for the next read rather than guessing.
-If no such check can be found, the builder records that here, and the app labels the numbers with the account from `~/.claude.json` and re-reads both together on every change to either.
+Measured 2026-10-20: `GET api.anthropic.com/api/oauth/profile` with the same headers returns `account.uuid` and `organization.uuid`, and both matched `~/.claude.json`'s `accountUuid` and `organizationUuid`; it also gives `account.email`, `organization.name`, `organization.organization_type` (for example `claude_max`), `rate_limit_tier` and `seat_tier`. A scrubbed copy is `fixtures/oauth-profile-2026-10-20.json`. A bad token gets HTTP 401 from the usage endpoint.
+So the profile endpoint is the account check, and its fields are what the header shows; `~/.claude.json` is only the trigger that says "re-check now".
 For source 2, the account is whichever one is signed in to claude.ai in the app's own window, and switching means signing out and in there.
 
 ### Polling
