@@ -50,7 +50,8 @@ public struct UsageState: Sendable, Equatable {
     public init() {}
 
     public mutating func accountChanged(to accountUUID: String?) {
-        guard accountUUID != self.accountUUID else { return }
+        // A fresh state is .loading with no account; going to nil is a change from it.
+        if accountUUID == self.accountUUID, !(accountUUID == nil && display == .loading) { return }
         self.accountUUID = accountUUID
         display = accountUUID == nil ? .unavailable(.claudeCodeNotSignedIn) : .loading
     }

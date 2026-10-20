@@ -86,3 +86,56 @@ private func snap(account: String) -> Snapshot {
     #expect(Problem.offline.message == "Offline.")
     #expect(Problem.unreadableResponse.message == "Anthropic changed the usage format. An update is needed.")
 }
+
+@Test func switchingAwayFromStaleDropsOldNumbers() {
+    var state = UsageState()
+    state.accountChanged(to: "a")
+    state.received(snap(account: "a"))
+    state.failed(.offline)
+    state.accountChanged(to: "b")
+    #expect(state.display == .loading)
+    state.failed(.offline)
+    #expect(state.display == .unavailable(.offline))
+}
+
+@Test func recoversFromStale() {
+    var state = UsageState()
+    state.accountChanged(to: "a")
+    state.received(snap(account: "a"))
+    state.failed(.offline)
+    var newer = snap(account: "a")
+    newer = Snapshot(profile: newer.profile, plan: "Pro", report: newer.report, fetchedAt: Date(timeIntervalSince1970: 2_000), source: .claudeAI)
+    state.received(newer)
+    #expect(state.display == .ready(newer))
+}
+
+@Test func recoversFromUnavailable() {
+    var state = UsageState()
+    state.accountChanged(to: "a")
+    state.failed(.unauthorized)
+    #expect(state.display == .unavailable(.unauthorized))
+    state.received(snap(account: "a"))
+    #expect(state.display == .ready(snap(account: "a")))
+}
+
+@Test func signedOutIgnoresSnapshots() {
+    var state = UsageState()
+    state.accountChanged(to: "a")
+    state.accountChanged(to: nil)
+    state.received(snap(account: "a"))
+    #expect(state.display == .unavailable(.claudeCodeNotSignedIn))
+}
+
+@Test func freshStateSignedOutIsUnavailable() {
+    var state = UsageState()
+    state.accountChanged(to: nil)
+    #expect(state.display == .unavailable(.claudeCodeNotSignedIn))
+}
+
+@Test func repeatedSignedOutKeepsLaterProblem() {
+    var state = UsageState()
+    state.accountChanged(to: nil)
+    state.failed(.offline)
+    state.accountChanged(to: nil)
+    #expect(state.display == .unavailable(.offline))
+}
