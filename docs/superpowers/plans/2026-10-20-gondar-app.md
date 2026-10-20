@@ -30,12 +30,12 @@ They wait for the real name; a later plan covers them by copying PortGlimpse's.
 - Fonts as PortGlimpse: Bricolage Grotesque (titles), Figtree (body), IBM Plex Mono (numbers), with their OFL licence files.
 - Request headers for both Anthropic endpoints: `Authorization: Bearer <token>`, `anthropic-beta: oauth-2025-04-20`, `User-Agent: Gondar/<version>`.
 - Poll every 120 seconds; never more often than once per 60 seconds, including refreshes the person asks for.
-- `./scripts/test.sh` exit code is the verdict before every commit.
+- `./scripts/test.sh` exit code is the verdict before every commit, and every commit step first runs the identity check (`grep -v '^#' ~/.config/zewify/identity-denylist | git grep -niEf /dev/stdin -- . ':!*.ttf'`, which must print nothing), because the repo will be public and history is painful to rewrite.
 
 ## Review Focus
 
 1. **An account switch while a request is in flight.** A response for the old account that lands after the switch must be dropped, never shown under the new account's name. Pinned in Task 4 (`dropsSnapshotForPreviousAccount`).
-2. **Claude Code missing, signed out, or its token expired.** No Keychain item, no `~/.claude.json`, or an expired token must each give a specific, calm message and keep any last numbers marked stale — not a crash or an empty panel. Pinned in Tasks 2 and 4.
+2. **Claude Code missing, signed out, or its token expired.** Each must give a specific, calm message, not a crash or an empty panel. An expired token keeps the last numbers marked stale; a missing Keychain item (signed out) drops them, because they belonged to an account that is no longer signed in. Pinned in Tasks 2 and 4.
 3. **A reset time that has already passed.** After a session resets but before the next poll, the row must not count down into negatives; it reads "Resetting now". Pinned in Task 3 (`pastResetReadsResettingNow`).
 4. **A response that changes shape.** An unknown `kind` or `severity`, a missing `scope`, a `percent` over 100, or a malformed entry must still give a readable row or skip that one entry, never fail the whole response. Pinned in Task 2.
 5. **Hours offline or asleep.** Numbers must say how old they are and polling must back off, not spin. Pinned in Task 4 (`backsOffAfterFailures`, `staleKeepsLastSnapshot`).
@@ -87,9 +87,9 @@ gondar/
 **Interfaces:**
 - Produces: the `GondarCore` library target and the `GondarCoreTests` test target with `resources: [.copy("Fixtures")]`; `Theme` with PortGlimpse's members and `PanelButtonStyle`.
 
-- [ ] **Step 1:** Copy `project.yml`, `.gitignore`, `App/Signing.xcconfig`, `App/Info.plist`, `Core/Package.swift`, `scripts/test.sh` (without the `test-install.sh` line), `scripts/build.sh`, `scripts/install-local.sh`, `App/Sources/Theme.swift` and `App/Resources/Fonts/` from PortGlimpse with the renames. In `project.yml` set `MARKETING_VERSION` "0.1.0", `CURRENT_PROJECT_VERSION` "1", `LSApplicationCategoryType` `public.app-category.utilities`.
+- [ ] **Step 1:** Copy `project.yml`, `.gitignore`, `App/Signing.xcconfig`, `App/Info.plist`, `Core/Package.swift`, `scripts/test.sh` (without the `test-install.sh` line), `scripts/build.sh`, `scripts/install-local.sh`, `App/Sources/Theme.swift` and `App/Resources/Fonts/` from PortGlimpse with the renames, and copy both files from `docs/superpowers/specs/fixtures/` into `Core/Tests/GondarCoreTests/Fixtures/` (the package's `resources: [.copy("Fixtures")]` fails the build if the folder is missing). Do not copy PortGlimpse's `Tests/Support/TestServer.swift`. In `project.yml` set `MARKETING_VERSION` "0.1.0", `CURRENT_PROJECT_VERSION` "1", `LSApplicationCategoryType` `public.app-category.utilities`.
 - [ ] **Step 2:** Write `SmokeTests.swift` with `@Test func packageLoads() { #expect(Bool(true)) }` and `GondarApp.swift` as a `MenuBarExtra` (`.window` style) whose label is `Text("–")` and whose content is a 320-point-wide `Text("Gondar")` on `Theme.panel`.
-- [ ] **Step 3:** Write `CLAUDE.md` in PortGlimpse's shape: one-line description, spec and plan paths, Layout, Commands, and the rules from this plan's Global Constraints that are not obvious (Core imports Foundation only; never refresh or write Claude Code's token; tokens never logged; Zewify identity rule; author `Zewify`, no trailers).
+- [ ] **Step 3:** Write `CLAUDE.md` in PortGlimpse's shape: one-line description, spec and plan paths, Layout, Commands, and the rules from this plan's Global Constraints that are not obvious (Core imports Foundation only; never refresh or write Claude Code's token; tokens never logged; Zewify identity rule; author `Zewify`, no trailers), plus the identity check every commit runs first: `grep -v '^#' ~/.config/zewify/identity-denylist | git grep -niEf /dev/stdin -- . ':!*.ttf'` must print nothing.
 - [ ] **Step 4:** Run `./scripts/test.sh`. Expected: exit 0, the test passes and the build prints nothing on error.
 - [ ] **Step 5:** Run `./scripts/install-local.sh`. Expected: "Installed /Applications/Gondar.app" and a "–" in the menu bar; clicking it shows the panel.
 - [ ] **Step 6:** Commit: `git add -A && git commit -m "Scaffold Gondar: XcodeGen app and GondarCore package"`.
@@ -101,7 +101,7 @@ gondar/
 **Files:**
 - Create: `Core/Sources/GondarCore/Credentials.swift`, `Usage.swift`, `Profile.swift`
 - Delete: `Core/Sources/GondarCore/Gondar.swift`, `SmokeTests.swift`
-- Test: `Core/Tests/GondarCoreTests/CredentialsTests.swift`, `UsageTests.swift`, `ProfileTests.swift`; copy both spec fixtures into `Core/Tests/GondarCoreTests/Fixtures/`
+- Test: `Core/Tests/GondarCoreTests/CredentialsTests.swift`, `UsageTests.swift`, `ProfileTests.swift` (fixtures were copied in Task 1)
 
 **Interfaces:**
 - Produces (all `public`, `Sendable`, `Equatable`):
@@ -121,11 +121,11 @@ gondar/
 @Test func parsesMeasuredUsage() throws {
     let report = try OAuthUsageParser.parse(fixture("oauth-usage-2026-10-20.json"))
     #expect(report.limits.map(\.kind) == [.session, .weeklyAll, .weeklyScoped])
-    #expect(report.limits.map(\.percent) == [12, 8, 0])
+    #expect(report.limits.map(\.percent) == [13, 8, 0])
     #expect(report.limits[2].scopeName == "Fable")
     #expect(report.limits[2].shareOfWeekly == 50)
     #expect(report.limits[0].isActive && !report.limits[1].isActive)
-    #expect(report.limits[0].resetsAt == iso("2026-10-20T03:20:00.561Z"))   // to the millisecond
+    #expect(abs(report.limits[0].resetsAt!.timeIntervalSince(iso("2026-10-20T03:20:00.073099Z"))) < 0.001)
     #expect(report.limits[2].resetsAt == iso("2026-10-26T00:00:00Z"))
     #expect(report.extra == ExtraUsage(used: Money(minor: 0, currency: "USD", exponent: 2), limit: Money(minor: 0, currency: "USD", exponent: 2)))
 }
@@ -141,7 +141,9 @@ gondar/
 @Test func parsesScrubbedProfile() throws           // fixture → email "test@example.com", organizationName "Example Org", organizationType "claude_max", rateLimitTier "default_claude_max_20x", seatTier nil
 ```
 
-Write the bodies of the commented tests with the inputs and expectations shown; `fixture(_:)` loads from `Bundle.module`.
+Write the bodies of the commented tests with the inputs and expectations shown; `fixture(_:)` loads from `Bundle.module`, and the test helper `iso(_:)` uses `Date.ISO8601FormatStyle(includingFractionalSeconds: true)`, which on macOS 14 also accepts the whole-second form.
+Never compare a fractional-second date with exact `==`: the two Foundation ISO parsers disagree below the millisecond.
+Convert `expiresAt` as `Double(ms) / 1000`, not `* 0.001`, so the credentials test's exact comparison holds.
 
 - [ ] **Step 2:** Run `cd Core && swift test`. Expected: compile failure (types not defined).
 - [ ] **Step 3:** Implement the three files with `Decodable` wire types kept `private`; decode `limits` as `[FailableDecodable<WireLimit>]` so one bad entry is skipped.
@@ -169,10 +171,10 @@ Write the bodies of the commented tests with the inputs and expectations shown; 
   - Warning: `severity != .normal || percent >= 80`.
   - Bar fraction: `min(max(percent, 0), 100) / 100`.
   - Countdown: under 1 min "under 1 m"; under 1 h "36 m"; under 24 h "1 h 36 m"; otherwise "5 d 3 h". Minutes round down.
-  - Full: nil → "No reset time"; in the past → "Resetting now"; today → "Resets in 1 h 36 m · 11:20 PM"; other days → "Resets in 5 d 22 h · Sun, Oct 25, 8:00 PM". Times use the locale's own time format (`Date.FormatStyle` with `.hour().minute()`), in the calendar's time zone.
+  - Full: nil → "No reset time"; in the past → "Resetting now"; today → "Resets in 1 h 36 m · 11:20 PM"; other days → "Resets in 5 d 22 h · Sun, Oct 25, 8:00 PM" (en_US, New York). Times use the locale's own formats (`Date.FormatStyle` with `.hour().minute()`, and `.weekday(.abbreviated).day().month(.abbreviated)` for the date), in the calendar's time zone; whatever punctuation the locale adds is kept.
   - Plan: `claude_team` → "Team", `claude_max` → "Max", `claude_pro` → "Pro", `claude_enterprise` → "Enterprise", else nil; tier `default_claude_max_5x` → "Max 5x", `default_claude_max_20x` → "Max 20x", else omitted; joined with " · ", e.g. "Max · Max 20x"; nil when both are unknown.
   - Updated: under 60 s "Updated just now"; then "Updated 1 min ago", "Updated 5 min ago", "Updated 2 h ago".
-  - Money: currency-formatted from `minor / 10^exponent`, e.g. "$0.00" in `en_US`.
+  - Money: currency-formatted from `minor / 10^exponent` in the given locale, with no special-casing of the symbol, e.g. "$12.34" for USD in `en_US`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -183,7 +185,7 @@ Write the bodies of the commented tests with the inputs and expectations shown; 
 @Test func countsDown()                    // 30 s → "under 1 m", 36 m 59 s → "36 m", 1 h 36 m → "1 h 36 m", 5 d 3 h 20 m → "5 d 3 h"
 @Test func pastResetReadsResettingNow()    // resetsAt = now - 5 s → "Resetting now"
 @Test func fullTextToday()                 // now 2026-10-20T01:44Z, reset 03:20Z, tz America/New_York, en_US → "Resets in 1 h 36 m · 11:20 PM"
-@Test func fullTextOtherDay()              // reset 2026-10-26T00:00Z, same tz/locale → begins "Resets in 5 d" and contains "Sun, Oct 25"
+@Test func fullTextOtherDay()              // reset 2026-10-26T00:00Z, same now/tz/locale → begins "Resets in 5 d 22 h", contains "Sun" and "Oct 25" and "8:00"
 @Test func planLabel()                     // ("claude_team", nil) → "Team"; (nil,nil) → nil; ("claude_pro", "x") → "Pro"
 @Test func updatedText()                   // 10 s "Updated just now", 61 s "Updated 1 min ago", 7300 s "Updated 2 h ago"
 @Test func moneyText()                     // Money(1234,"USD",2), en_US → "$12.34"
@@ -217,13 +219,13 @@ Before fixing the expected strings for the two `fullText` tests and `moneyText`,
     - offline → "Offline."
     - unreadableResponse → "Anthropic changed the usage format. An update is needed."
   - `enum Display { case loading; case ready(Snapshot); case stale(Snapshot, Problem); case unavailable(Problem) }`
-  - `struct UsageState { private(set) var display: Display; private(set) var accountUUID: String? }` with `mutating func accountChanged(to accountUUID: String?)`, `mutating func received(_ snapshot: Snapshot)`, `mutating func failed(_ problem: Problem)`.
+  - `struct UsageState { private(set) var display: Display = .loading; private(set) var accountUUID: String? = nil }` with `mutating func accountChanged(to accountUUID: String?)`, `mutating func received(_ snapshot: Snapshot)`, `mutating func failed(_ problem: Problem)`.
   - `struct PollSchedule { static let interval: Duration = .seconds(120); static let minimumGap: Duration = .seconds(60); var failures: Int; func nextDelay(retryAfter: Duration?) -> Duration; static func mayPollNow(lastAttempt: Date?, now: Date) -> Bool }`.
 - Rules:
-  - `accountChanged` to a different non-nil UUID → `display = .loading`, previous snapshot gone; to nil → `.unavailable(.claudeCodeNotSignedIn)`; to the same UUID → no change.
+  - `accountChanged` to a different non-nil UUID → `display = .loading`, previous snapshot gone; to nil → `.unavailable(.claudeCodeNotSignedIn)`, previous snapshot gone too (signing out is an account change, so the old account's numbers must not linger); to the same UUID → no change.
   - `received` with `snapshot.profile.accountUUID != accountUUID` → ignored. Otherwise `.ready`.
   - `failed` → `.stale(last, problem)` if a snapshot for this account exists (from `.ready` or `.stale`), else `.unavailable(problem)`.
-  - `nextDelay`: `retryAfter` when given (at least `minimumGap`); otherwise 120 s × 2^failures, capped at 30 min.
+  - `nextDelay`: `retryAfter` when given (at least `minimumGap`); otherwise 120 s × 2^min(failures, 4), capped at 30 min (clamping the exponent first stops an overflow after many failures).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -233,10 +235,10 @@ Before fixing the expected strings for the two `fullText` tests and `moneyText`,
 @Test func dropsSnapshotForPreviousAccount()       // accountChanged("a"), accountChanged("b"), received(snap(account: "a")) → still .loading
 @Test func switchingClearsOldNumbers()             // ready for "a", accountChanged("b") → .loading
 @Test func sameAccountKeepsNumbers()               // ready for "a", accountChanged("a") → still .ready
-@Test func signedOutIsUnavailable()                // accountChanged(nil) → .unavailable(.claudeCodeNotSignedIn)
+@Test func signedOutIsUnavailable()                // ready for "a", accountChanged(nil) → .unavailable(.claudeCodeNotSignedIn), no snapshot kept
 @Test func staleKeepsLastSnapshot()                // ready, failed(.offline) → .stale(sameSnapshot, .offline); failed(.tokenExpired) again → .stale(sameSnapshot, .tokenExpired)
 @Test func failureWithoutSnapshotIsUnavailable()   // loading, failed(.unauthorized) → .unavailable(.unauthorized)
-@Test func backsOffAfterFailures()                 // failures 0 → 120 s, 1 → 240 s, 3 → 960 s, 10 → 1800 s
+@Test func backsOffAfterFailures()                 // failures 0 → 120 s, 1 → 240 s, 3 → 960 s, 10 → 1800 s, 70 → 1800 s
 @Test func honoursRetryAfterButNotBelowMinimum()   // retryAfter 300 s → 300 s; retryAfter 5 s → 60 s
 @Test func refusesPollWithinAMinute()              // lastAttempt now-30 s → false; now-61 s → true; nil → true
 ```
@@ -257,18 +259,19 @@ Before fixing the expected strings for the two `fullText` tests and `moneyText`,
 **Interfaces:**
 - Consumes: Tasks 2–4.
 - Produces:
-  - `enum CredentialReader { static func read() async -> String? }` — runs `/usr/bin/security find-generic-password -s "Claude Code-credentials" -w` with `Process`, returns trimmed stdout on exit 0, nil otherwise (exit 44 means no item). Never logs stdout.
-  - `struct AnthropicClient { func usage(token: String) async -> Result<UsageReport, FetchError>; func profile(token: String) async -> Result<Profile, FetchError> }` with `enum FetchError { case unauthorized, rateLimited(retryAfter: Duration?), offline, unreadable }` — 401/403 → unauthorized, 429 → rateLimited (reads `Retry-After` seconds), `URLError` → offline, other status or parse failure → unreadable. Timeout 20 s. Base URL `https://api.anthropic.com/api/oauth/`.
-  - `final class AccountFileWatcher { init(onChange: @escaping @Sendable () -> Void); func start(); func stop() }` — watches the home directory with a `DispatchSource` file-system-object source for `.write` and re-reads only when `~/.claude.json`'s modification date changed, because Claude Code replaces the file by rename and a watch on the file itself goes dead. Debounce 1 s.
-  - `@MainActor @Observable final class UsageModel { private(set) var state: UsageState; private(set) var now: Date; var menuBarText: String; var sessionLimit: UsageLimit?; func start(); func refresh(); func viewerAppeared() }`.
+  - `enum CredentialReader { static func read() async -> String? }` — runs `/usr/bin/security find-generic-password -s "Claude Code-credentials" -w` with `Process`, returns trimmed stdout on exit 0, nil otherwise (exit 44 means no item). Await exit through `terminationHandler` and `withCheckedContinuation`, never `waitUntilExit()`, which would block a cooperative thread. Never logs stdout. (`Process` needs no entitlement in an unsandboxed hardened-runtime app.)
+  - `struct AnthropicClient { func usage(token: String) async -> Result<UsageReport, FetchError>; func profile(token: String) async -> Result<Profile, FetchError> }` with `enum FetchError { case unauthorized, rateLimited(retryAfter: Duration?), offline, unreadable }` — 401/403 → unauthorized, 429 → rateLimited (reads `Retry-After` seconds), `URLError` → offline, other status or parse failure → unreadable. Timeout 20 s. Base URL `https://api.anthropic.com/api/oauth/`. Its own `URLSession` built from `URLSessionConfiguration.ephemeral` with `urlCache = nil`, so the profile (email, organisation) is never cached on disk.
+  - `@MainActor final class AccountFileWatcher { init(onChange: @escaping @MainActor (LocalAccount?) -> Void); func start(); func stop() }` — watches the home directory with a `DispatchSource` file-system-object source for `.write` on `queue: .main` (handler body in `MainActor.assumeIsolated`, as PortGlimpse's `PanelWindowObserver` does), because Claude Code replaces the file by rename and a watch on the file itself goes dead. On an event, if `~/.claude.json`'s modification date changed, debounce 1 s, `LocalAccount.parse` it, and call `onChange` **only when the `(accountUUID, organizationUUID)` pair differs from the last one seen** — Claude Code rewrites the file routinely without any account change.
+  - `@MainActor @Observable final class UsageModel { private(set) var state: UsageState; private(set) var now: Date; private(set) var canRefresh: Bool; var menuBarText: String; var sessionLimit: UsageLimit?; func start(); func refresh(); func viewerAppeared(); func viewerDisappeared() }` — `viewerDisappeared()` decrements a viewer count kept for symmetry with PortGlimpse's window controller; polling does not depend on it. `canRefresh` mirrors `PollSchedule.mayPollNow`.
+- `poll()` is single-flight: it holds `pollTask: Task<Void, Never>?` and a generation counter; a new poll request while one runs is dropped, except an account change, which cancels the running one and bumps the generation so a late result from the old one is discarded.
 - Poll cycle (`UsageModel.poll()`), in this order:
-  1. Respect `PollSchedule.mayPollNow`.
-  2. `CredentialReader.read()`; nil → `state.accountChanged(to: nil)`, stop.
-  3. Parse credentials; if expired → re-read once on the next cycle (Claude Code may refresh it), and `state.failed(.tokenExpired)`; stop.
-  4. If the token differs from the last one seen (compare a SHA-256 of it held in memory only), call `profile`; on success `state.accountChanged(to: profile.accountUUID)` and keep the profile; on failure map to a `Problem` and stop.
-  5. Call `usage`; on success `state.received(Snapshot(profile:, plan: PlanText.label(...), report:, fetchedAt: now, source: .claudeCode))`; on failure `state.failed(...)`, `failures += 1`.
+  1. Respect `PollSchedule.mayPollNow` (except after an account change, below).
+  2. `CredentialReader.read()`; nil → `state.accountChanged(to: nil)`; sleep `interval` (no backoff); end this cycle.
+  3. Parse credentials; if expired → `state.failed(.tokenExpired)`, leave `failures` unchanged, sleep `interval` and end this cycle; the next cycle re-reads the item, since Claude Code may have refreshed it.
+  4. If the token differs from the last one seen (compare a SHA-256 of it held in memory only), call `profile`. If `profile.accountUUID` differs from the last `LocalAccount.accountUUID` read from `~/.claude.json`, the switch is half done: keep the current display, sleep `minimumGap`, and retry. Otherwise `state.accountChanged(to: profile.accountUUID)` and keep the profile. On failure map to a `Problem`, `state.failed`, `failures += 1`, end this cycle.
+  5. Capture `let profileForThisPoll = profile` **before** awaiting `usage`; build the snapshot from that local, never from `self.profile` after the await. On success `state.received(Snapshot(profile: profileForThisPoll, plan: PlanText.label(...), report:, fetchedAt: now, source: .claudeCode))`, `failures = 0`; on failure `state.failed(...)`, `failures += 1`.
   6. Sleep `nextDelay`.
-- `AccountFileWatcher` change → forget the token fingerprint and poll now (ignoring `mayPollNow`, since an account switch must show within seconds).
+- `AccountFileWatcher` `onChange` (a real account or organisation change) → forget the token fingerprint, remember the new `LocalAccount`, and poll now ignoring `mayPollNow` — the one allowed bypass, because a switch must show within seconds.
 - Pause the loop on `NSWorkspace.willSleepNotification`, poll once on `didWakeNotification`.
 - `now` ticks every 30 s so countdowns move without polling.
 - `menuBarText`: session percent as "12%"; "–" when there is no session limit.
@@ -295,8 +298,8 @@ Before fixing the expected strings for the two `fullText` tests and `moneyText`,
   - Header: email (Figtree 13 semibold, text), organisation · plan (Figtree 12, muted), and on the right `UpdatedText` (12, muted). `.stale` adds the problem's message in amber on a second line. `.loading` shows a small `ProgressView`; `.unavailable` shows only the message.
   - Rows: name (Figtree 13 semibold) and percent (IBM Plex Mono 13) on one line; a 6-point bar (track `Theme.line`, fill `Theme.amber`, inactive limits fill `Theme.muted`) at `LimitText.barFraction`; `ResetText.full` (Figtree 12, muted) beneath. Rows divided by `Theme.line`.
   - Extra usage row when `report.extra != nil`: "Extra usage" and "\(MoneyText used) of \(MoneyText limit)".
-  - Footer: "Pop out", "Refresh" (disabled while `mayPollNow` is false), a source line "From Claude Code", a Settings menu with "Launch at login" (Task 9) and "Check for updates" (Task 9), and "Quit" — PortGlimpse's `PanelFooter` styling.
-- Opening the panel calls `model.viewerAppeared()` (through `PanelWindowObserver`), which polls when the last poll is older than 60 s.
+  - Footer: "Pop out", "Refresh" (disabled while `model.canRefresh` is false), a source line "From Claude Code", a Settings menu with "Launch at login" (Task 9) and "Check for updates" (Task 9), and "Quit" — PortGlimpse's `PanelFooter` styling.
+- Opening the panel calls `model.viewerAppeared()` and closing it `model.viewerDisappeared()`, through the copied `PanelWindowObserver` (pass `onEscape: { false }`); `viewerAppeared()` polls when the last poll is older than 60 s.
 
 - [ ] **Step 1:** Implement the views.
 - [ ] **Step 2:** Run `./scripts/test.sh`. Expected: exit 0.
@@ -315,6 +318,7 @@ Before fixing the expected strings for the two `fullText` tests and `moneyText`,
 **Interfaces:**
 - Consumes: `LimitRow`, `PanelHeader`, `PanelFooter`, `UsageModel.viewerAppeared()`.
 - Produces: `FloatingWindowController(model:content:)` with `show()`; autosave name `GondarWindow`; default size 320×300; minimum 220×140.
+- Adapting the copy: drop its `model.cancelConfirmations()` call (Gondar has no confirmations); keep `viewerAppeared()` / `viewerDisappeared()`; the new `WindowView` keeps a `static let headerHeight` because the controller centres the traffic lights with it.
 - Rules:
   - Level `.floating`, on all Spaces and over full-screen apps — as PortGlimpse.
   - Below 280 points wide, `compact: true`: each row is one line, name · percent · countdown (`ResetText.countdown`), no bar; the header is the email only.
