@@ -167,9 +167,14 @@ final class FloatingWindowController: NSObject, NSWindowDelegate {
 }
 
 /// Lets the window be dragged by the strip: a mouse-down here starts a window drag.
+/// It also carries the strip's tooltip, since the SwiftUI content above it ignores the pointer.
 struct WindowDragHandle: NSViewRepresentable {
+    var toolTip: String? = nil
+
     func makeNSView(context: Context) -> DragView { DragView() }
-    func updateNSView(_ view: DragView, context: Context) {}
+    func updateNSView(_ view: DragView, context: Context) {
+        if view.toolTip != toolTip { view.toolTip = toolTip }
+    }
 
     final class DragView: NSView {
         override func mouseDown(with event: NSEvent) {

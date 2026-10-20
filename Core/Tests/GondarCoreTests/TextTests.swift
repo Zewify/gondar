@@ -106,6 +106,16 @@ private func utc(_ text: String) -> Date {
     #expect(UpdatedText.text(fetchedAt: now - 7300, now: now) == "Updated 2 h ago")
 }
 
+/// The pop-out's title strip: a short reason and the age, on one line beside the name.
+@Test func staleText() {
+    let now = Date(timeIntervalSince1970: 1_000_000)
+    #expect(StaleText.text(.rateLimited, fetchedAt: now - 2 * 60, now: now) == "Rate limited · 2 min ago")
+    #expect(StaleText.text(.offline, fetchedAt: now - 5 * 60, now: now) == "Offline · 5 min ago")
+    #expect(StaleText.text(.tokenExpired, fetchedAt: now - 3 * 60, now: now) == "Login expired · 3 min ago")
+    #expect(StaleText.text(.notUpdating, fetchedAt: now - 10, now: now) == "Not updating · just now")
+    #expect(StaleText.text(.unauthorized, fetchedAt: now - 7300, now: now) == "Login refused · 2 h ago")
+}
+
 @Test func moneyText() {
     let text = MoneyText.text(Money(minor: 1234, currency: "USD", exponent: 2), locale: english)
     #expect(text == "$12.34")

@@ -3,7 +3,8 @@ import SwiftUI
 
 /// The pop-out window's content, kept as small as it can be (a design decision): the traffic lights and the name in a draggable strip,
 /// then one line per limit (name, percentage, countdown), with no bars, account header, extra usage or footer;
-/// those all live in the menu bar panel. A problem shows as one line above the rows, so old numbers never look current.
+/// those all live in the menu bar panel. Stale numbers stay, with a short reason and their age in the strip beside the name,
+/// so old numbers never look current and status text never pushes the rows out of a window fitted to them.
 struct WindowView: View {
     /// The strip the traffic lights and the name sit in. It stays taller than the title bar: on macOS 26 a scroll view that meets the
     /// title bar gets a tinted band drawn over it. The traffic lights are moved to its centre line by FloatingWindowController.
@@ -39,21 +40,44 @@ struct WindowView: View {
         .ignoresSafeArea(.container, edges: .top)
     }
 
-    /// The traffic lights sit over the leading 78 points; the title ignores clicks so the drag handle gets them.
+    /// The traffic lights sit over the leading 78 points; the title ignores clicks so the drag handle gets them,
+    /// which is also why the stale reason's tooltip is the drag handle's own rather than a SwiftUI `.help`.
     private var titleStrip: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: 8) {
             Text("Gondar")
                 .font(Theme.title(15))
                 .tracking(-0.5)
                 .foregroundStyle(Theme.text)
                 .lineLimit(1)
+                .fixedSize()
             Spacer(minLength: 0)
+            if case .stale(let snapshot, let problem) = model.display {
+                staleStatus(snapshot, problem)
+            }
         }
         .allowsHitTesting(false)
         .padding(.leading, 78)
         .padding(.trailing, Self.inset)
         .frame(height: Self.stripHeight)
-        .background(WindowDragHandle())
+        .background(WindowDragHandle(toolTip: staleToolTip))
+    }
+
+    /// "Rate limited · 2 min ago" in amber on one line; when the window is too narrow for the age, the reason alone.
+    /// It never wraps, so the strip, and the window fitted to the rows, keep their height.
+    private func staleStatus(_ snapshot: Snapshot, _ problem: Problem) -> some View {
+        ViewThatFits(in: .horizontal) {
+            Text(verbatim: StaleText.text(problem, fetchedAt: snapshot.fetchedAt, now: model.now)).fixedSize()
+            Text(verbatim: problem.shortLabel).lineLimit(1)
+        }
+        .font(Theme.body(12, .medium))
+        .foregroundStyle(Theme.amber)
+        .accessibilityLabel(Text(verbatim: problem.message + " " + UpdatedText.text(fetchedAt: snapshot.fetchedAt, now: model.now) + "."))
+    }
+
+    /// The full reason and the age, shown when the pointer rests on the strip while the numbers are stale.
+    private var staleToolTip: String? {
+        guard case .stale(let snapshot, let problem) = model.display else { return nil }
+        return problem.message + " " + UpdatedText.text(fetchedAt: snapshot.fetchedAt, now: model.now) + "."
     }
 
     @ViewBuilder private var content: some View {
@@ -68,23 +92,10 @@ struct WindowView: View {
                 .foregroundStyle(Theme.softText)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
-        case .ready(let snapshot):
+        // Stale numbers stay as they are; the strip says they are old.
+        case .ready(let snapshot), .stale(let snapshot, _):
             rows(snapshot.report)
-        case .stale(let snapshot, let problem):
-            VStack(alignment: .leading, spacing: 6) {
-                staleLine(snapshot, problem)
-                rows(snapshot.report)
-            }
         }
-    }
-
-    /// The age, muted, and the reason, amber, as one line that wraps when the window is narrow.
-    private func staleLine(_ snapshot: Snapshot, _ problem: Problem) -> some View {
-        (Text(verbatim: UpdatedText.text(fetchedAt: snapshot.fetchedAt, now: model.now) + " · ").foregroundStyle(Theme.muted)
-            + Text(verbatim: problem.message).foregroundStyle(Theme.amber))
-            .font(Theme.body(12, .medium))
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// A grid, so the percentages and countdowns line up in columns; a line saying so when the source lists no limits.

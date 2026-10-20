@@ -165,7 +165,9 @@ It remembers whether it was open and reopens at launch if it was.
 ### Stale numbers and errors
 
 The builder's call on how stale states read: the numbers stay, the menu bar number turns muted, and the panel's header shows how old they are ("Updated 6 min ago") with the reason under it in amber.
-The floating window shows one line above its rows instead, with the age muted and the reason in amber; while loading it shows a small spinner, and without numbers the reason alone.
+The floating window keeps its rows and says it in its title strip instead, beside the name, on one line that never wraps: a short reason and the age in amber ("Rate limited · 2 min ago", "Offline · 5 min ago", "Login expired · 3 min ago"), or the reason alone when the window is too narrow for both, with the full reason and age as the strip's tooltip.
+Status text never pushes the rows out of the window, so its height stays the same whether the numbers are current or stale (found on 2026-10-20: a wrapped status line above the rows hid them in a window fitted to them).
+While loading it shows a small spinner, and without numbers the full reason in place of the rows.
 As a backstop, numbers that no poll has replaced for longer than two intervals and a minute (300 seconds) are shown as stale with "Not updated for several minutes.", even when no failure explains it, so old numbers can never look current.
 Without numbers to keep, the reason shows alone in place of the rows.
 The reasons:

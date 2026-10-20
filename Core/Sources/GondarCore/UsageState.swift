@@ -40,6 +40,21 @@ public enum Problem: Sendable, Equatable {
         case .notUpdating: "Not updated for several minutes."
         }
     }
+
+    /// The few words the pop-out shows beside its name while the numbers are stale; `message` is its tooltip.
+    public var shortLabel: String {
+        switch self {
+        case .claudeCodeNotSignedIn: "Signed out"
+        case .keychainUnreadable: "Keychain error"
+        case .tokenExpired: "Login expired"
+        case .unauthorized: "Login refused"
+        case .rateLimited: "Rate limited"
+        case .offline: "Offline"
+        case .unreadableResponse: "Format changed"
+        case .accountSwitchPending: "Switching account"
+        case .notUpdating: "Not updating"
+        }
+    }
 }
 
 /// Which numbers are which: an account within one organisation. Switching either is a different account to show.

@@ -90,10 +90,22 @@ public enum PlanText {
 
 public enum UpdatedText {
     public static func text(fetchedAt: Date, now: Date) -> String {
+        "Updated " + age(fetchedAt: fetchedAt, now: now)
+    }
+
+    /// "just now", "5 min ago", "2 h ago".
+    public static func age(fetchedAt: Date, now: Date) -> String {
         let seconds = max(0, Int(now.timeIntervalSince(fetchedAt)))
-        if seconds < 60 { return "Updated just now" }
-        if seconds < 3600 { return "Updated \(seconds / 60) min ago" }
-        return "Updated \(seconds / 3600) h ago"
+        if seconds < 60 { return "just now" }
+        if seconds < 3600 { return "\(seconds / 60) min ago" }
+        return "\(seconds / 3600) h ago"
+    }
+}
+
+/// What the pop-out's title strip says while its numbers are stale: "Rate limited · 2 min ago".
+public enum StaleText {
+    public static func text(_ problem: Problem, fetchedAt: Date, now: Date) -> String {
+        "\(problem.shortLabel) · \(UpdatedText.age(fetchedAt: fetchedAt, now: now))"
     }
 }
 

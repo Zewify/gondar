@@ -94,6 +94,19 @@ private func snap(account: String, org: String = "org") -> Snapshot {
     #expect(Problem.notUpdating.message == "Not updated for several minutes.")
 }
 
+/// Short enough to sit beside the pop-out's name (the longest, "Switching account", is about 100 points in Figtree 12).
+@Test func problemShortLabels() {
+    #expect(Problem.claudeCodeNotSignedIn.shortLabel == "Signed out")
+    #expect(Problem.keychainUnreadable.shortLabel == "Keychain error")
+    #expect(Problem.tokenExpired.shortLabel == "Login expired")
+    #expect(Problem.unauthorized.shortLabel == "Login refused")
+    #expect(Problem.rateLimited.shortLabel == "Rate limited")
+    #expect(Problem.offline.shortLabel == "Offline")
+    #expect(Problem.unreadableResponse.shortLabel == "Format changed")
+    #expect(Problem.accountSwitchPending.shortLabel == "Switching account")
+    #expect(Problem.notUpdating.shortLabel == "Not updating")
+}
+
 @Test func switchingAwayFromStaleDropsOldNumbers() {
     var state = UsageState()
     state.accountChanged(to: key("a"))
