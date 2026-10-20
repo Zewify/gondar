@@ -4,6 +4,14 @@ public struct PollSchedule: Sendable, Equatable {
     public static let interval: Duration = .seconds(300)
     /// How often the API is asked while Claude Code's status line feed is fresh: only for what the feed lacks.
     public static let feedInterval: Duration = .seconds(900)
+    /// The backoff's base: after n failures in a row the wait is this times 2^n (240, 480, 960 s), capped at 30 minutes.
+    /// Its own constant, not derived from `interval`, so the retries stay fast (decided 2026-10-20).
+    public static let backoffBase: Duration = .seconds(120)
+    /// How long numbers may go unreplaced before they are shown as stale with no failure to name.
+    public static let staleBackstop: Duration = .seconds(300)
+    /// How often the Keychain is read again while there is no usable token (none, unreadable, expired, refused).
+    /// Local only: the API is asked again only once the token's fingerprint changes.
+    public static let tokenRecheck: Duration = .seconds(120)
     public static let minimumGap: Duration = .seconds(60)
     private static let longestDelay: Duration = .seconds(1800)
 
@@ -13,18 +21,18 @@ public struct PollSchedule: Sendable, Equatable {
         self.failures = failures
     }
 
-    /// The backoff (300 s doubling per failure, at most 30 min), or a longer Retry-After.
+    /// The regular interval with no failures, otherwise the backoff (120 s doubling per failure, at most 30 min), or a longer Retry-After.
     /// Retry-After only ever lengthens the wait: the usage endpoint answers 429 with `retry-after: 0`.
     public func nextDelay(retryAfter: Duration?) -> Duration {
         let exponent = min(max(failures, 0), 4)
-        let backoff = min(Self.interval * (1 << exponent), Self.longestDelay)
+        let backoff = exponent == 0 ? Self.interval : min(Self.backoffBase * (1 << exponent), Self.longestDelay)
         return max(retryAfter ?? .zero, backoff)
     }
 
     /// The wait after a failed poll, counting it as a failure unless it is `.unauthorized`:
-    /// a refused login is fixed locally, by Claude Code writing a new token, so it waits the plain interval.
+    /// a refused login is fixed locally, by Claude Code writing a new token, so it waits only the local re-read.
     public mutating func delay(after problem: Problem, retryAfter: Duration?) -> Duration {
-        if problem == .unauthorized { return Self.interval }
+        if problem == .unauthorized { return Self.tokenRecheck }
         failures += 1
         return nextDelay(retryAfter: retryAfter)
     }

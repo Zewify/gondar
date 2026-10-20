@@ -189,30 +189,30 @@ final class UsageModel {
             profile = nil
             setAccount(nil)
             publish()
-            return PollSchedule.interval
+            return PollSchedule.tokenRecheck
         case .failed:
             // Not the same as signed out: keep the account and its numbers, marked stale.
             Self.logger.error("Couldn't read Claude Code's login from the Keychain")
             apiFailed(.keychainUnreadable)
-            return PollSchedule.interval
+            return PollSchedule.tokenRecheck
         }
 
         guard let credentials = try? ClaudeCodeCredentials.parse(keychainValue: keychainValue) else {
             Self.logger.error("Claude Code's login is not in the expected shape")
             apiFailed(.keychainUnreadable)
-            return PollSchedule.interval
+            return PollSchedule.tokenRecheck
         }
         if credentials.isExpired(at: Date()) {
             // Not counted as a failure: Claude Code refreshes the token when it next runs, and the next poll reads it again.
             apiFailed(.tokenExpired)
-            return PollSchedule.interval
+            return PollSchedule.tokenRecheck
         }
 
         let fingerprint = SHA256.hash(data: Data(credentials.accessToken.utf8))
         if fingerprint == refusedToken {
-            // Refused before: only a new token from Claude Code can fix that, so read the Keychain each interval and ask nothing.
+            // Refused before: only a new token from Claude Code can fix that, so read the Keychain every `tokenRecheck` and ask nothing.
             apiFailed(.unauthorized)
-            return PollSchedule.interval
+            return PollSchedule.tokenRecheck
         }
         refusedToken = nil
         if fingerprint != tokenFingerprint || profile == nil {
@@ -255,7 +255,7 @@ final class UsageModel {
                 return record(error, token: fingerprint)
             }
         }
-        guard let profileForThisPoll = profile else { return PollSchedule.interval }
+        guard let profileForThisPoll = profile else { return PollSchedule.tokenRecheck }
 
         let result = await client.usage(token: credentials.accessToken)
         guard isCurrent() else { return nil }

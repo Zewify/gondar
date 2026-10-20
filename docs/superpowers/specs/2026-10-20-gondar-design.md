@@ -140,12 +140,12 @@ On a 429 or a network failure, back off and keep the last values, marked stale.
 When the Mac sleeps, stop; on wake, poll once.
 
 Builder's calls:
-- The interval is 300 seconds: decided on 2026-10-20, up from the builder's 120 s, to ask Anthropic less often when the status line feed is not live.
-- After a failure the wait is 300 s × 2^n (300, 600, 1200, 1800 s, then 1800 s) for n failures in a row, capped at 30 minutes; a `Retry-After` only ever lengthens it, because the usage endpoint answers 429 with `retry-after: 0`.
+- The regular interval is 300 seconds: decided on 2026-10-20, up from the builder's 120 s, to ask Anthropic less often when the status line feed is not live. The retry, staleness and token re-read timings below are their own constants, kept at their earlier values on purpose (2026-10-20), not derived from it.
+- After a failure the wait is 120 s × 2^n (240, 480, 960 s, then 1800 s from the fourth) for n failures in a row, capped at 30 minutes, and the regular 300 s with none; a `Retry-After` only ever lengthens it, because the usage endpoint answers 429 with `retry-after: 0`.
 - No poll runs within 60 seconds of the last attempt, the person's Refresh included; the time of the last attempt is saved, so the floor holds across relaunches.
 - Opening the panel or the window does not poll while backing off after a failure, since the scheduled retry handles that and an extra request would prolong a rate limit.
-- An expired token is not counted as a failure: the Keychain is read again at the next interval.
-- A refused token (HTTP 401 or 403) is not counted as a failure either, because the fix is local: the app keeps reading the Keychain every interval and does not call the API again until the token's fingerprint changes, showing "Claude Code's login was refused. Sign in to Claude Code again." meanwhile.
+- An expired token is not counted as a failure: the Keychain is read again after 120 seconds (local only; the API is not called).
+- A refused token (HTTP 401 or 403) is not counted as a failure either, because the fix is local: the app keeps reading the Keychain every 120 seconds (local only) and does not call the API again until the token's fingerprint changes, showing "Claude Code's login was refused. Sign in to Claude Code again." meanwhile.
 
 ## Interface
 
@@ -198,7 +198,7 @@ The builder's call on how stale states read: the numbers stay, the menu bar numb
 The floating window keeps its rows and says it in its title strip instead, beside the name, on one line that never wraps: a short reason and the age in amber ("Rate limited · 2 min ago", "Offline · 5 min ago", "Login expired · 3 min ago"), or the reason alone when the window is too narrow for both, with the full reason and age as the strip's tooltip.
 Status text never pushes the rows out of the window, so its height stays the same whether the numbers are current or stale (found on 2026-10-20: a wrapped status line above the rows hid them in a window fitted to them).
 While loading it shows a small spinner, and without numbers the full reason in place of the rows.
-As a backstop, numbers that no poll has replaced for longer than two intervals and a minute (660 seconds) are shown as stale with "Not updated for several minutes.", even when no failure explains it, so old numbers can never look current.
+As a backstop, numbers that no poll has replaced for longer than 300 seconds (a design decision, 2026-10-20) are shown as stale with "Not updated for several minutes.", even when no failure explains it, so old numbers can never look current.
 Without numbers to keep, the reason shows alone in place of the rows.
 The reasons:
 - "Sign in to Claude Code." — no Keychain item; the previous account's numbers are dropped.

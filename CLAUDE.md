@@ -29,5 +29,5 @@ Plan: `docs/superpowers/plans/2026-10-20-gondar-app.md`.
 - The Core imports Foundation only — never AppKit, SwiftUI, Security or WebKit.
 - Never refresh Claude Code's token, and never write to the Keychain or `~/.claude.json`.
 - Tokens are never logged, written to disk or `UserDefaults`, or sent anywhere but `api.anthropic.com` and `claude.ai`.
-- Poll every 300 seconds (five minutes; decided 2026-10-20, up from 120 s) when the status line feed is not live, and every 15 minutes while it is; never more often than once per 60 seconds, refreshes the person asks for included.
+- Poll every 300 seconds (five minutes; decided 2026-10-20, up from 120 s) when the status line feed is not live, and every 15 minutes while it is; after a failure back off 120 s × 2^n (240, 480, 960, then 1800 s), re-read the Keychain every 120 s without a usable token, and call numbers stale after 300 s (each its own constant in `PollSchedule`, kept on purpose, 2026-10-20); never more often than once per 60 seconds, refreshes the person asks for included.
 - "Claude" is never part of the product's name; "Claude Code" and "claude.ai" may be named as sources.
