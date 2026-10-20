@@ -129,6 +129,7 @@ Copy PortGlimpse's `Theme.swift` and its floating window controller as the start
 A small mark followed by the session percentage, for example `12%`.
 The text turns amber when the session's `severity` is not `normal`, or at 80 % if `severity` never changes (builder's call on the exact rule, written into this document).
 Builder's call: amber when `severity` is anything but `normal`, or when the percentage is 80 or more.
+That rule is the menu bar's own; the rows colour their percentages by level instead (see the panel).
 When there is no usable data, the mark shows alone with a dash.
 A stale number is drawn muted, whatever its percentage, so it never looks current.
 
@@ -140,6 +141,9 @@ Builder's call: the source line ("From Claude Code" or "From claude.ai") sits in
 The floating window does not show the email: it is kept as minimal as possible (decided 2026-10-20), so a switch shows in the panel.
 One row per limit, in the order the source gives: a name ("Current session", "Weekly · all models", "Weekly · Fable"), a bar, the percentage, and "Resets in 1 h 36 m · 11:20 PM" (the clock time in the Mac's own format, with the date when it is not today).
 Bars are amber; a limit that is not active is drawn muted.
+The percentage is coloured by its level (decided on 2026-10-20): green `#7BC47F` under 50 %, amber `#F48E48` from 50 to 79 %, and red `#F26B5B` at 80 % and over or whenever `severity` is not `normal`.
+A limit that is not active keeps its level colour, so the colour always means the level.
+Each colour is at least 4.5:1 on the panel `#201B17` (8.2, 7.2 and 5.7).
 If extra usage is enabled, a last row shows spend against its limit in its own currency.
 Builder's call: when that limit is zero, the row shows the spend alone, as "<amount> used", since a zero cap is no limit worth comparing with.
 A footer with "Pop out" (opens the floating window), "Refresh", a source line ("From Claude Code" or "From claude.ai"), "Sign in to claude.ai" / "Sign out", "Launch at login", and "Quit".
@@ -150,9 +154,9 @@ As built, the footer holds Settings (a menu with "Launch at login" and, once the
 The same limits as the panel, as minimal as possible (decided on 2026-10-20: no graph): always on top, on every Space and over full-screen apps, resizable, reopening at its last position and size.
 Each limit is one line: the name, the percentage in IBM Plex Mono, right-aligned, and the countdown, muted ("1 h 36 m").
 There are no bars, no account header, no extra usage row and no footer; those all stay in the panel.
-The title area holds only the traffic lights, with no title text.
+The title area holds the traffic lights and "Gondar" in Bricolage Grotesque (the name came back on 2026-10-20).
 A passed reset reads "Resetting now" and a limit without one reads "No reset time".
-The percentage is amber near the limit and muted for a limit that is not active, as in the panel.
+The percentage is coloured by its level, as in the panel.
 Builder's call: it cannot be made narrower than 272 points, which fits "Weekly · all models", "100%" and "Resetting now" on one line, nor shorter than one line; shorter than its rows, it scrolls.
 The first time it opens, it fits its height to its rows once, keeping its top edge and staying on the screen; after that, or as soon as the person moves or resizes it, the saved frame wins.
 Closing it does not quit the app.

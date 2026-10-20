@@ -36,6 +36,26 @@ private func utc(_ text: String) -> Date {
     #expect(LimitText.isWarning(limit(.session, percent: 10, severity: .other("high"))))
 }
 
+@Test func levelsByPercentage() {
+    #expect(LimitText.level(limit(.session, percent: 0)) == .low)
+    #expect(LimitText.level(limit(.session, percent: 49)) == .low)
+    #expect(LimitText.level(limit(.session, percent: 50)) == .medium)
+    #expect(LimitText.level(limit(.session, percent: 79)) == .medium)
+    #expect(LimitText.level(limit(.session, percent: 80)) == .high)
+    #expect(LimitText.level(limit(.session, percent: 130)) == .high)
+}
+
+@Test func levelIsHighWheneverSeverityIsNotNormal() {
+    #expect(LimitText.level(limit(.session, percent: 10, severity: .other("high"))) == .high)
+}
+
+@Test func levelIgnoresWhetherTheLimitIsActive() {
+    let inactive = UsageLimit(
+        kind: .weeklyAll, scopeName: nil, percent: 60, severity: .normal, resetsAt: nil, isActive: false, shareOfWeekly: nil
+    )
+    #expect(LimitText.level(inactive) == .medium)
+}
+
 @Test func clampsBar() {
     #expect(LimitText.barFraction(limit(.session, percent: 130)) == 1.0)
     #expect(LimitText.barFraction(limit(.session, percent: -5)) == 0.0)

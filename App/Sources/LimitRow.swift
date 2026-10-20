@@ -58,7 +58,7 @@ struct LimitName: View {
     }
 }
 
-/// A limit's percentage, shared by the panel and the pop-out window: amber near the limit, muted when not active.
+/// A limit's percentage, shared by the panel and the pop-out window, coloured by its level whether or not it is active.
 struct LimitPercent: View {
     let limit: UsageLimit
 
@@ -66,7 +66,7 @@ struct LimitPercent: View {
         Text(verbatim: "\(limit.percent)%")
             .font(Theme.mono(13))
             .monospacedDigit()
-            .foregroundStyle(!limit.isActive ? Theme.muted : LimitText.isWarning(limit) ? Theme.amber : Theme.text)
+            .foregroundStyle(Theme.level(LimitText.level(limit)))
             .fixedSize()
     }
 }

@@ -17,9 +17,21 @@ public enum LimitText {
         limit.severity != .normal || limit.percent >= 80
     }
 
+    /// How near its limit a limit is, for the percentage's colour (a design decision, 2026-10-20):
+    /// under 50 % low, 50 to 79 % medium, 80 % and over, or any severity but normal, high.
+    /// Whether the limit is active does not matter, so the colour always means the level.
+    public static func level(_ limit: UsageLimit) -> UsageLevel {
+        if isWarning(limit) { return .high }
+        return limit.percent >= 50 ? .medium : .low
+    }
+
     public static func barFraction(_ limit: UsageLimit) -> Double {
         Double(min(max(limit.percent, 0), 100)) / 100
     }
+}
+
+public enum UsageLevel: Sendable, Equatable {
+    case low, medium, high
 }
 
 public enum ResetText {
