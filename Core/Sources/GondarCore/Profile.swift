@@ -66,3 +66,26 @@ public struct Profile: Sendable, Equatable {
         }
     }
 }
+
+extension Profile {
+    /// The header fields Claude Code keeps in `~/.claude.json` under `oauthAccount`, shown until the profile endpoint confirms them.
+    /// Needs both IDs; anything else missing is left empty. The organisation's rate-limit tier is used when `PlanText` knows it,
+    /// otherwise the person's own (`userRateLimitTier`), as a Team seat's Max tier is recorded there.
+    public static func parse(claudeJSON: Data) -> Profile? {
+        guard let object = try? JSONSerialization.jsonObject(with: claudeJSON) as? [String: Any],
+            let account = object["oauthAccount"] as? [String: Any],
+            let accountUUID = account["accountUuid"] as? String,
+            let organizationUUID = account["organizationUuid"] as? String
+        else { return nil }
+        let tiers = [account["organizationRateLimitTier"], account["userRateLimitTier"]].compactMap { $0 as? String }
+        return Profile(
+            accountUUID: accountUUID,
+            email: account["emailAddress"] as? String ?? "",
+            organizationUUID: organizationUUID,
+            organizationName: account["organizationName"] as? String ?? "",
+            organizationType: account["organizationType"] as? String,
+            rateLimitTier: tiers.first { PlanText.knows(tier: $0) } ?? tiers.first,
+            seatTier: account["seatTier"] as? String
+        )
+    }
+}

@@ -183,3 +183,34 @@ private func snap(account: String, org: String = "org") -> Snapshot {
     #expect(profile.accountKey == key("a", org: "one"))
     #expect(LocalAccount(accountUUID: "a", organizationUUID: "one").key == key("a", org: "one"))
 }
+
+@Test func restoredNumbersAreStaleUntilAResult() {
+    var state = UsageState()
+    state.accountChanged(to: key("a"))
+    state.restore(snap(account: "a"))
+    #expect(state.display == .stale(snap(account: "a"), .restored))
+    state.received(snap(account: "a"))
+    #expect(state.display == .ready(snap(account: "a")))
+}
+
+@Test func restoredNumbersOfAnotherAccountAreIgnored() {
+    var state = UsageState()
+    state.accountChanged(to: key("a"))
+    state.restore(snap(account: "b"))
+    #expect(state.display == .loading)
+}
+
+@Test func restoringNeverReplacesNumbersAlreadyShown() {
+    var state = UsageState()
+    state.accountChanged(to: key("a"))
+    state.received(snap(account: "a"))
+    let older = Snapshot(profile: snap(account: "a").profile, plan: nil, report: UsageReport(limits: [], extra: nil),
+                         fetchedAt: Date(timeIntervalSince1970: 1), source: .claudeCode)
+    state.restore(older)
+    #expect(state.display == .ready(snap(account: "a")))
+}
+
+@Test func restoredMessage() {
+    #expect(Problem.restored.message == "Last numbers from before Gondar restarted.")
+    #expect(Problem.restored.shortLabel == "Restored")
+}

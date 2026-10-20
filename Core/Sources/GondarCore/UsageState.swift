@@ -10,13 +10,16 @@ public struct Snapshot: Sendable, Equatable {
     public let report: UsageReport
     public let fetchedAt: Date
     public let source: Source
+    /// Some numbers come from Claude Code's status line feed while it is fresh.
+    public let live: Bool
 
-    public init(profile: Profile, plan: String?, report: UsageReport, fetchedAt: Date, source: Source) {
+    public init(profile: Profile, plan: String?, report: UsageReport, fetchedAt: Date, source: Source, live: Bool = false) {
         self.profile = profile
         self.plan = plan
         self.report = report
         self.fetchedAt = fetchedAt
         self.source = source
+        self.live = live
     }
 }
 
@@ -26,6 +29,8 @@ public enum Problem: Sendable, Equatable {
     case accountSwitchPending
     /// Shown numbers that no poll has replaced for longer than `Display.staleAfter`, with no failure to name.
     case notUpdating
+    /// Numbers saved by an earlier launch, shown until the first live or API result.
+    case restored
 
     public var message: String {
         switch self {
@@ -38,6 +43,7 @@ public enum Problem: Sendable, Equatable {
         case .unreadableResponse: "Anthropic changed the usage format. An update is needed."
         case .accountSwitchPending: "Waiting for Claude Code to finish switching accounts."
         case .notUpdating: "Not updated for several minutes."
+        case .restored: "Last numbers from before Gondar restarted."
         }
     }
 
@@ -53,6 +59,7 @@ public enum Problem: Sendable, Equatable {
         case .unreadableResponse: "Format changed"
         case .accountSwitchPending: "Switching account"
         case .notUpdating: "Not updating"
+        case .restored: "Restored"
         }
     }
 }
@@ -100,6 +107,12 @@ public struct UsageState: Sendable, Equatable {
     public mutating func received(_ snapshot: Snapshot) {
         guard let account, snapshot.profile.accountKey == account else { return }
         display = .ready(snapshot)
+    }
+
+    /// Numbers an earlier launch saved, shown stale while nothing newer is: only for the current account, and only while loading.
+    public mutating func restore(_ snapshot: Snapshot) {
+        guard let account, snapshot.profile.accountKey == account, display == .loading else { return }
+        display = .stale(snapshot, .restored)
     }
 
     public mutating func failed(_ problem: Problem) {

@@ -33,7 +33,7 @@ struct PanelHeader: View {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 VStack(alignment: .leading, spacing: 2) {
                     email(snapshot)
-                    Text(verbatim: [snapshot.profile.organizationName, snapshot.plan].compactMap { $0 }.joined(separator: " · "))
+                    Text(verbatim: [snapshot.profile.organizationName, snapshot.plan].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
                         .font(Theme.body(12))
                         .foregroundStyle(Theme.muted)
                         .lineLimit(1)
@@ -43,7 +43,7 @@ struct PanelHeader: View {
                 // Where the numbers come from sits under their age.
                 VStack(alignment: .trailing, spacing: 2) {
                     Text(verbatim: UpdatedText.text(fetchedAt: snapshot.fetchedAt, now: model.now))
-                    Text(verbatim: Self.sourceLine(snapshot.source))
+                    Text(verbatim: SourceText.line(snapshot))
                 }
                 .font(Theme.body(12))
                 .foregroundStyle(Theme.muted)
@@ -55,13 +55,6 @@ struct PanelHeader: View {
                     .foregroundStyle(Theme.amber)
                     .fixedSize(horizontal: false, vertical: true)
             }
-        }
-    }
-
-    private static func sourceLine(_ source: Source) -> String {
-        switch source {
-        case .claudeCode: "From Claude Code"
-        case .claudeAI: "From claude.ai"
         }
     }
 

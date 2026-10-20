@@ -15,10 +15,11 @@ extension Display {
 
     /// What to show at `now`: a ready snapshot older than `staleAfter` is stale, even with no failure to name,
     /// so numbers that stopped updating for any reason never look current. Used by the menu bar and the panel header.
+    /// Live numbers last as long as the feed counts as fresh, since the API is asked only every 15 minutes meanwhile.
     public func presented(now: Date) -> Display {
-        guard case .ready(let snapshot) = self,
-              now.timeIntervalSince(snapshot.fetchedAt) > Double(Self.staleAfter.components.seconds)
-        else { return self }
+        guard case .ready(let snapshot) = self else { return self }
+        let limit = snapshot.live ? LimitMerge.freshness : Double(Self.staleAfter.components.seconds)
+        guard now.timeIntervalSince(snapshot.fetchedAt) > limit else { return self }
         return .stale(snapshot, .notUpdating)
     }
 

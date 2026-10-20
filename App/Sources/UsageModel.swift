@@ -6,6 +6,13 @@ import os
 
 /// Everything the menu bar and panel show: Claude Code's usage, for whichever account it is signed in to.
 ///
+/// The numbers come from two places, merged by `SnapshotMerge` whenever either changes: the usage API, and
+/// Claude Code's status line feed (`statusline.json`, written by `gondar-feed`). While the feed is fresh the numbers are live,
+/// and the API is asked only every 15 minutes, for the limits the feed lacks and for the account check.
+/// The feed names no account, so it counts only when it arrived after the last account change; launch counts as one,
+/// since Gondar cannot know what changed while it was not running. The last numbers shown are saved to `last.json`
+/// and shown at the next launch, marked as restored, until the first live or API result.
+///
 /// Polls run one at a time. A poll asked for while one runs is dropped, except after an account change,
 /// which cancels the running poll and bumps `generation`, so that anything the old poll learns late,
 /// success or failure, is thrown away rather than shown under the new account.
@@ -39,6 +46,7 @@ final class UsageModel {
     @ObservationIgnored private var refreshGate: Task<Void, Never>?
     @ObservationIgnored private var ticker: Task<Void, Never>?
     @ObservationIgnored private var watcher: AccountFileWatcher?
+    @ObservationIgnored private var feedWatcher: FeedWatcher?
     @ObservationIgnored private var workspaceTokens: [NSObjectProtocol] = []
     @ObservationIgnored private var isAsleep = false
     /// A SHA-256 of the last token checked against the profile endpoint, held in memory only.
@@ -50,6 +58,23 @@ final class UsageModel {
     /// The one place the app tracks it: the watcher reports reads and this decides what is a switch.
     @ObservationIgnored private var localAccount: LocalAccount?
     @ObservationIgnored private var mismatch = AccountMismatch()
+    /// The plan worked out when `profile` was fetched, with the Keychain's tier as a fallback.
+    @ObservationIgnored private var profilePlan: String?
+    /// The header fields `~/.claude.json` gives, shown until the profile endpoint confirms them.
+    @ObservationIgnored private var localProfile: Profile?
+    /// The last usage the API returned, for the current account; cleared on a switch.
+    @ObservationIgnored private var apiSnapshot: Snapshot?
+    /// Why the last API poll failed, until the next success.
+    @ObservationIgnored private var apiProblem: Problem?
+    /// The status line feed as last read.
+    @ObservationIgnored private var feed: FeedSnapshot?
+    /// Feed data received before this is ignored: it may be another account's.
+    @ObservationIgnored private var lastAccountChange = Date()
+    /// Whether the numbers shown include a fresh feed.
+    @ObservationIgnored private var isLive = false
+    @ObservationIgnored private var liveExpiry: Task<Void, Never>?
+    /// What `last.json` holds, so an unchanged snapshot is not written again.
+    @ObservationIgnored private var lastSaved: Data?
 
     private static let logger = Logger(subsystem: "com.zewify.gondar", category: "usage")
 
@@ -82,13 +107,23 @@ final class UsageModel {
         })
 
         Task { [weak self] in
-            let account = await AccountFileWatcher.read()
+            let file = await AccountFileWatcher.read()
             guard let self else { return }
-            if let account { self.localAccount = account }
+            if let file {
+                self.localAccount = file.account
+                self.localProfile = file.profile
+                self.setAccount(file.account.key)
+                self.restoreLastSnapshot()
+            }
             // Started after the first read, so that read is the baseline and only later writes can be a switch.
-            let watcher = AccountFileWatcher { [weak self] account in self?.accountFileChanged(account) }
+            let watcher = AccountFileWatcher { [weak self] file in self?.accountFileChanged(file) }
             watcher.start()
             self.watcher = watcher
+            let feedWatcher = FeedWatcher { [weak self] feed in self?.feedChanged(feed) }
+            feedWatcher.start()
+            self.feedWatcher = feedWatcher
+            self.feed = await FeedWatcher.read()
+            self.publish()
             // A relaunch within a minute of the last poll waits out the rest of it.
             self.pollOrWait()
         }
@@ -101,8 +136,9 @@ final class UsageModel {
 
     /// The panel or the floating window opened: poll once, unless the last poll was under a minute ago.
     /// Not while backing off after a failure: the scheduled retry handles that, and an extra request would prolong a rate limit.
+    /// Not while the feed keeps the numbers live either: then the API is asked every 15 minutes at most.
     func viewerAppeared() {
-        guard schedule.pollsWhenViewed else { return }
+        guard schedule.pollsWhenViewed, !slowedByFeed else { return }
         poll()
     }
 
@@ -153,30 +189,31 @@ final class UsageModel {
         case .noItem:
             tokenFingerprint = nil
             profile = nil
-            state.accountChanged(to: nil)
+            setAccount(nil)
+            publish()
             return PollSchedule.interval
         case .failed:
             // Not the same as signed out: keep the account and its numbers, marked stale.
             Self.logger.error("Couldn't read Claude Code's login from the Keychain")
-            state.failed(.keychainUnreadable)
+            apiFailed(.keychainUnreadable)
             return PollSchedule.interval
         }
 
         guard let credentials = try? ClaudeCodeCredentials.parse(keychainValue: keychainValue) else {
             Self.logger.error("Claude Code's login is not in the expected shape")
-            state.failed(.keychainUnreadable)
+            apiFailed(.keychainUnreadable)
             return PollSchedule.interval
         }
         if credentials.isExpired(at: Date()) {
             // Not counted as a failure: Claude Code refreshes the token when it next runs, and the next poll reads it again.
-            state.failed(.tokenExpired)
+            apiFailed(.tokenExpired)
             return PollSchedule.interval
         }
 
         let fingerprint = SHA256.hash(data: Data(credentials.accessToken.utf8))
         if fingerprint == refusedToken {
             // Refused before: only a new token from Claude Code can fix that, so read the Keychain each interval and ask nothing.
-            state.failed(.unauthorized)
+            apiFailed(.unauthorized)
             return PollSchedule.interval
         }
         refusedToken = nil
@@ -188,20 +225,33 @@ final class UsageModel {
                     // The watcher may not have caught up; read the file once before deciding.
                     let fresh = await AccountFileWatcher.read()
                     guard isCurrent() else { return nil }
-                    if let fresh { localAccount = fresh }
-                    if let fresh, fresh.key != fetched.accountKey {
+                    if let fresh {
+                        // A switch the watcher has not reported yet is still a switch: the old account's numbers go,
+                        // and feed data from before it is ignored, so it never shows under the wrong header.
+                        let switched = fresh.account != localAccount
+                        localAccount = fresh.account
+                        localProfile = fresh.profile
+                        if switched {
+                            setAccount(fresh.account.key)
+                            publish()
+                        }
+                    }
+                    if let fresh, fresh.account.key != fetched.accountKey {
                         // A switch half done: the token and the file name different accounts. Keep what is shown and look again,
                         // twice; a third disagreement in a row is reported and backs off, so it never looks current or polls every minute.
                         Self.logger.info("The token and the account file disagree; waiting")
                         guard mismatch.disagreed() else { return PollSchedule.minimumGap }
-                        state.failed(.accountSwitchPending)
+                        apiFailed(.accountSwitchPending)
                         return schedule.delay(after: .accountSwitchPending, retryAfter: nil)
                     }
                 }
                 mismatch.agreed()
                 tokenFingerprint = fingerprint
                 profile = fetched
-                state.accountChanged(to: fetched.accountKey)
+                profilePlan = PlanText.label(
+                    organizationType: fetched.organizationType, rateLimitTier: fetched.rateLimitTier ?? credentials.rateLimitTier
+                )
+                setAccount(fetched.accountKey)
             case .failure(let error):
                 guard isCurrent() else { return nil }
                 return record(error, token: fingerprint)
@@ -213,20 +263,11 @@ final class UsageModel {
         guard isCurrent() else { return nil }
         switch result {
         case .success(let report):
-            let fetchedAt = Date()
-            now = fetchedAt
-            state.received(Snapshot(
-                profile: profileForThisPoll,
-                plan: PlanText.label(
-                    organizationType: profileForThisPoll.organizationType,
-                    rateLimitTier: profileForThisPoll.rateLimitTier ?? credentials.rateLimitTier
-                ),
-                report: report,
-                fetchedAt: fetchedAt,
-                source: .claudeCode
-            ))
+            apiSnapshot = Snapshot(profile: profileForThisPoll, plan: profilePlan, report: report, fetchedAt: Date(), source: .claudeCode)
+            apiProblem = nil
             schedule.failures = 0
-            return schedule.nextDelay(retryAfter: nil)
+            publish()
+            return cadence
         case .failure(let error):
             return record(error, token: fingerprint)
         }
@@ -235,7 +276,7 @@ final class UsageModel {
     /// A refused token is remembered (as its fingerprint) and not counted as a failure; anything else backs off.
     private func record(_ error: FetchError, token fingerprint: SHA256.Digest) -> Duration {
         Self.logger.notice("A request failed: \(String(describing: error.problem), privacy: .public)")
-        state.failed(error.problem)
+        apiFailed(error.problem)
         if error.problem == .unauthorized { refusedToken = fingerprint }
         return schedule.delay(after: error.problem, retryAfter: error.retryAfter)
     }
@@ -274,16 +315,137 @@ final class UsageModel {
         }
     }
 
+    /// The wait after a successful poll: 15 minutes while the feed keeps the numbers live, the usual schedule otherwise.
+    private var cadence: Duration {
+        slowedByFeed ? PollSchedule.feedInterval : schedule.nextDelay(retryAfter: nil)
+    }
+
+    /// The feed is live and the API has answered for this account, so it is asked only for what the feed lacks.
+    private var slowedByFeed: Bool { isLive && apiSnapshot != nil }
+
+    /// When the numbers turn live or stop being live, the scheduled poll moves to the new cadence, counted from the last attempt:
+    /// a feed gone quiet brings the usual schedule back at once rather than after the rest of 15 minutes.
+    /// Only a plain scheduled poll moves; a running poll or a backoff after a failure is left alone.
+    private func cadenceChanged() {
+        guard pollTask == nil, nextPoll != nil, schedule.failures == 0, !isAsleep, let lastAttempt else { return }
+        let elapsed = Date().timeIntervalSince(lastAttempt)
+        let wait = max(0, Double(cadence.components.seconds) - elapsed)
+        schedulePoll(after: .milliseconds(Int64(wait * 1000)))
+    }
+
+    // MARK: Showing the numbers
+
+    /// Recomputes what is shown from the API's last result and the feed, then saves it for the next launch.
+    /// A failure the API reported marks the numbers stale only while they are not live: live numbers are current whatever the API says.
+    private func publish() {
+        let current = Date()
+        now = current
+        let account = state.account
+        let api = apiSnapshot.flatMap { $0.profile.accountKey == account ? $0 : nil }
+        let accepted = feed.map { $0.receivedAt > lastAccountChange } ?? false
+        let shown = SnapshotMerge.build(api: api, feed: feed, feedAccepted: accepted, header: header(), now: current)
+        if let shown {
+            state.received(shown)
+            if !shown.live, let apiProblem { state.failed(apiProblem) }
+            save(shown)
+        } else if let apiProblem {
+            state.failed(apiProblem)
+        }
+
+        let live = shown?.live ?? false
+        liveExpiry?.cancel()
+        liveExpiry = nil
+        if live, let feed {
+            // Shown again as the feed turns quiet, so the source line, the staleness and the cadence follow at once.
+            let left = feed.receivedAt.timeIntervalSince(current) + LimitMerge.freshness + 1
+            liveExpiry = Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(Int64(max(left, 1) * 1000)))
+                guard !Task.isCancelled, let self else { return }
+                self.liveExpiry = nil
+                self.publish()
+            }
+        }
+        if live != isLive {
+            isLive = live
+            cadenceChanged()
+        }
+    }
+
+    private func apiFailed(_ problem: Problem) {
+        apiProblem = problem
+        publish()
+    }
+
+    /// The header for numbers the API has not confirmed: the confirmed profile if there is one for this account,
+    /// otherwise `~/.claude.json`'s fields for it. Never another account's.
+    private func header() -> (profile: Profile, plan: String?)? {
+        guard let account = state.account else { return nil }
+        if let profile, profile.accountKey == account { return (profile, profilePlan) }
+        if let localProfile, localProfile.accountKey == account {
+            return (localProfile, PlanText.label(organizationType: localProfile.organizationType, rateLimitTier: localProfile.rateLimitTier))
+        }
+        return nil
+    }
+
+    private func feedChanged(_ feed: FeedSnapshot?) {
+        self.feed = feed
+        publish()
+    }
+
+    /// Shows the numbers the last launch saved, marked as restored, when they belong to the account `~/.claude.json` names.
+    private func restoreLastSnapshot() {
+        guard let account = state.account, let header = header(),
+            let data = try? Data(contentsOf: GondarFolder.lastURL),
+            let saved = SavedSnapshot.restore(saved: data, currentAccount: account)
+        else { return }
+        lastSaved = data
+        state.restore(Snapshot(
+            profile: header.profile, plan: header.plan, report: saved.report, fetchedAt: saved.fetchedAt, source: .claudeCode
+        ))
+    }
+
+    /// Writes `last.json` (IDs, limits and a time; owner-only) when what is shown changed.
+    private func save(_ shown: Snapshot) {
+        guard let account = state.account else { return }
+        let data = SavedSnapshot.encode(snapshot: shown, accountKey: account)
+        guard data != lastSaved else { return }
+        GondarFolder.create()
+        if GondarFolder.writeAtomically(data, to: GondarFolder.lastURL) {
+            lastSaved = data
+        } else {
+            Self.logger.error("Couldn't save the last numbers")
+        }
+    }
+
     // MARK: Account changes, sleep and wake
+
+    /// Follows a different account (or none): the previous account's API result and failure go, and feed data from
+    /// before now is ignored. The same account again changes nothing.
+    private func setAccount(_ key: AccountKey?) {
+        if key != state.account {
+            lastAccountChange = Date()
+            apiSnapshot = nil
+            apiProblem = nil
+        }
+        state.accountChanged(to: key)
+    }
 
     /// Only a real pair that differs from the last real pair is a switch; a file briefly missing or
     /// half-written (nil) is not, and must not bypass the one-minute floor.
-    private func accountFileChanged(_ account: LocalAccount?) {
-        guard let account, account != localAccount else { return }
+    private func accountFileChanged(_ file: AccountFile?) {
+        guard let file else { return }
+        guard file.account != localAccount else {
+            // Claude Code rewrites the file all the time; the header fields may still have changed.
+            localProfile = file.profile
+            publish()
+            return
+        }
         tokenFingerprint = nil
-        localAccount = account
+        localAccount = file.account
+        localProfile = file.profile
         // Drop the previous account's numbers at once; the poll fills in the new one's.
-        state.accountChanged(to: account.key)
+        setAccount(file.account.key)
+        publish()
         poll(afterAccountChange: true)
     }
 
@@ -298,7 +460,7 @@ final class UsageModel {
 
     private func didWake() {
         isAsleep = false
-        now = Date()
+        publish()
         pollOrWait()
     }
 }

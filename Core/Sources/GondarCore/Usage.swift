@@ -30,6 +30,13 @@ public enum Severity: Sendable, Equatable {
     init(raw: String) {
         self = raw == "normal" ? .normal : .other(raw)
     }
+
+    var raw: String {
+        switch self {
+        case .normal: "normal"
+        case .other(let raw): raw
+        }
+    }
 }
 
 public struct UsageLimit: Sendable, Equatable, Identifiable {

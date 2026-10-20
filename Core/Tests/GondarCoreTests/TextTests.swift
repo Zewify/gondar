@@ -147,3 +147,14 @@ private func utc(_ text: String) -> Date {
     #expect(ResetText.short(resetsAt: now + 30, now: now) == "under 1 m")
     #expect(ResetText.short(resetsAt: now + 96 * 60, now: now) == "1 h 36 m")
 }
+
+@Test func sourceLine() {
+    let profile = Profile(accountUUID: "a", email: "", organizationUUID: "o", organizationName: "", organizationType: nil,
+                          rateLimitTier: nil, seatTier: nil)
+    func shown(_ source: Source, live: Bool) -> Snapshot {
+        Snapshot(profile: profile, plan: nil, report: UsageReport(limits: [], extra: nil), fetchedAt: .now, source: source, live: live)
+    }
+    #expect(SourceText.line(shown(.claudeCode, live: true)) == "Live from Claude Code")
+    #expect(SourceText.line(shown(.claudeCode, live: false)) == "From Anthropic")
+    #expect(SourceText.line(shown(.claudeAI, live: false)) == "From claude.ai")
+}

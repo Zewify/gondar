@@ -32,7 +32,8 @@ struct LimitRow: View {
                 Spacer(minLength: 0)
                 LimitPercent(limit: limit)
             }
-            UsageBar(fraction: LimitText.barFraction(limit), fill: limit.isActive ? Theme.amber : Theme.muted)
+            // The bar takes the percentage's level colour, active or not, so the colour always means the level (a design decision).
+            UsageBar(fraction: LimitText.barFraction(limit), fill: Theme.level(LimitText.level(limit)))
                 .padding(.top, 8)
             Text(verbatim: ResetText.full(resetsAt: limit.resetsAt, now: now, calendar: .autoupdatingCurrent, locale: .autoupdatingCurrent))
                 .font(Theme.body(12))

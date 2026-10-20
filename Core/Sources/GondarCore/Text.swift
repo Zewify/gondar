@@ -78,13 +78,30 @@ public enum PlanText {
         case "claude_enterprise": "Enterprise"
         default: nil
         }
-        let tier: String? = switch rateLimitTier {
+        let tier = tierLabel(rateLimitTier)
+        let parts = [plan, tier].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    static func knows(tier: String) -> Bool { tierLabel(tier) != nil }
+
+    private static func tierLabel(_ rateLimitTier: String?) -> String? {
+        switch rateLimitTier {
         case "default_claude_max_5x": "Max 5x"
         case "default_claude_max_20x": "Max 20x"
         default: nil
         }
-        let parts = [plan, tier].compactMap { $0 }
-        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+}
+
+/// Where the panel's numbers come from, under their age.
+public enum SourceText {
+    public static func line(_ snapshot: Snapshot) -> String {
+        if snapshot.live { return "Live from Claude Code" }
+        return switch snapshot.source {
+        case .claudeCode: "From Anthropic"
+        case .claudeAI: "From claude.ai"
+        }
     }
 }
 

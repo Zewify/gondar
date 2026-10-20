@@ -142,7 +142,7 @@ public enum StatusLineFeed {
 
 public enum LimitMerge {
     /// How long feed data counts as fresh.
-    static let freshness: TimeInterval = 600
+    public static let freshness: TimeInterval = 600
 
     /// The API's report with every limit the fresh feed knows replaced by the feed's.
     /// `feedAccepted` is false when the feed predates the last account change.
@@ -191,5 +191,31 @@ public enum LimitMerge {
             return ra != rb ? ra < rb : a.offset < b.offset
         }.map(\.element)
         return (UsageReport(limits: ordered, extra: api?.extra), !feedLimits.isEmpty)
+    }
+}
+
+/// What the panel shows, from the last API result and the last feed, for one account.
+public enum SnapshotMerge {
+    /// The snapshot to show, or nil when there is nothing to show yet.
+    /// A fresh feed's limits replace the API's (`LimitMerge`) and make it live. A feed that has gone quiet is no longer live,
+    /// but its numbers still replace older API numbers, so a rate-limited API never brings back numbers older than the feed's.
+    /// The header is the API's confirmed profile when there is an API result, otherwise `header`, which the caller takes from
+    /// `~/.claude.json` for the same account. `feedAccepted` is false when the feed predates the last account change.
+    /// `fetchedAt` is the newer of the two times used.
+    public static func build(
+        api: Snapshot?, feed: FeedSnapshot?, feedAccepted: Bool, header: (profile: Profile, plan: String?)?, now: Date
+    ) -> Snapshot? {
+        let accepted = feed.flatMap { feedAccepted && now.timeIntervalSince($0.receivedAt) >= -5 && !$0.limits.isEmpty ? $0 : nil }
+        let fresh = accepted.map { now.timeIntervalSince($0.receivedAt) < LimitMerge.freshness } ?? false
+        let used = accepted.flatMap { feed in fresh || api.map { feed.receivedAt > $0.fetchedAt } ?? true ? feed : nil }
+        guard api != nil || used != nil else { return nil }
+        guard let profile = api?.profile ?? header?.profile else { return nil }
+        // A quiet feed is merged as of the time it arrived, when it was fresh.
+        let merged = LimitMerge.merge(api: api?.report, feed: used, feedAccepted: true, now: fresh ? now : used?.receivedAt ?? now)
+        let times = [api?.fetchedAt, used?.receivedAt].compactMap { $0 }
+        return Snapshot(
+            profile: profile, plan: api != nil ? api?.plan : header?.plan, report: merged.report,
+            fetchedAt: times.max() ?? now, source: api?.source ?? .claudeCode, live: fresh
+        )
     }
 }

@@ -2,6 +2,13 @@ import Foundation
 import GondarCore
 import os
 
+/// What `~/.claude.json` says about the signed-in account: the IDs that decide a switch, and the header fields
+/// shown until the profile endpoint confirms them.
+struct AccountFile: Sendable {
+    let account: LocalAccount
+    let profile: Profile?
+}
+
 /// Notices when Claude Code rewrites `~/.claude.json`, and reports the account it then names.
 ///
 /// It watches the home directory rather than the file: Claude Code replaces the file by rename,
@@ -13,14 +20,14 @@ import os
 final class AccountFileWatcher {
     nonisolated static let fileURL = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".claude.json")
 
-    private let onChange: @MainActor (LocalAccount?) -> Void
+    private let onChange: @MainActor (AccountFile?) -> Void
     private var source: DispatchSourceFileSystemObject?
     private var lastModified: Date?
     private var pending: Task<Void, Never>?
 
     private static let logger = Logger(subsystem: "com.zewify.gondar", category: "account")
 
-    init(onChange: @escaping @MainActor (LocalAccount?) -> Void) {
+    init(onChange: @escaping @MainActor (AccountFile?) -> Void) {
         self.onChange = onChange
     }
 
@@ -42,10 +49,10 @@ final class AccountFileWatcher {
     }
 
     /// The signed-in account in `~/.claude.json`, read off the main actor (the file runs to hundreds of kilobytes).
-    nonisolated static func read() async -> LocalAccount? {
+    nonisolated static func read() async -> AccountFile? {
         await Task.detached(priority: .utility) {
-            guard let data = try? Data(contentsOf: fileURL) else { return nil }
-            return LocalAccount.parse(claudeJSON: data)
+            guard let data = try? Data(contentsOf: fileURL), let account = LocalAccount.parse(claudeJSON: data) else { return nil }
+            return AccountFile(account: account, profile: Profile.parse(claudeJSON: data))
         }.value
     }
 
