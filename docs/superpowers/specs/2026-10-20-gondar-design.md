@@ -65,6 +65,7 @@ A direct Keychain API call from an ad hoc signed app would prompt, and the "Alwa
 The builder must confirm the no-prompt behaviour from the installed app, not only from a terminal, before building more of source 1 than the read itself.
 If the installed app does get a prompt, the builder's call is: claude.ai sign-in (source 2) becomes the primary source and is built first, and Claude Code's item is read only when the person turns on "Use Claude Code's login" in the panel, which explains that macOS may ask again after each update.
 Record the result here either way.
+Confirmed 2026-10-20 from the installed app (`/Applications/Gondar.app`, ad hoc signed, hardened runtime): reading the item through `security` raised no Keychain dialog, and the menu bar showed the live session percentage, matching a direct read of the usage endpoint.
 
 The app never refreshes Claude Code's token itself, because refreshing rotates the refresh token and would leave Claude Code holding a dead one (the first anti-goal).
 When the token is expired, the app reads the item again on each poll, since Claude Code may have refreshed it meanwhile; if it is still expired, it falls back to source 2 when signed in there, and otherwise shows the stale state with "Open Claude Code to refresh".
