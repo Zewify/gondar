@@ -18,18 +18,9 @@ final class UsageModel {
     /// Mirrors `PollSchedule.mayPollNow`: false within a minute of the last poll.
     private(set) var canRefresh = true
 
-    var sessionLimit: UsageLimit? {
-        switch state.display {
-        case .ready(let snapshot), .stale(let snapshot, _):
-            snapshot.report.limits.first { $0.kind == .session }
-        case .loading, .unavailable:
-            nil
-        }
-    }
-
-    var menuBarText: String {
-        sessionLimit.map { "\($0.percent)%" } ?? "–"
-    }
+    var sessionLimit: UsageLimit? { state.display.sessionLimit }
+    var menuBarText: String { state.display.menuBarText }
+    var menuBarTone: MenuBarTone { state.display.menuBarTone }
 
     @ObservationIgnored private let client = AnthropicClient()
     @ObservationIgnored private var schedule = PollSchedule()

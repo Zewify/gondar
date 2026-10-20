@@ -1,0 +1,58 @@
+import Foundation
+import Testing
+
+@testable import GondarCore
+
+private func limit(_ kind: LimitKind, percent: Int, severity: Severity = .normal) -> UsageLimit {
+    UsageLimit(kind: kind, scopeName: nil, percent: percent, severity: severity, resetsAt: nil, isActive: true, shareOfWeekly: nil)
+}
+
+private func snapshot(_ limits: [UsageLimit]) -> Snapshot {
+    Snapshot(
+        profile: Profile(
+            accountUUID: "a", email: "a@example.com", organizationUUID: "o",
+            organizationName: "Org", organizationType: nil, rateLimitTier: nil, seatTier: nil),
+        plan: nil,
+        report: UsageReport(limits: limits, extra: nil),
+        fetchedAt: Date(timeIntervalSince1970: 0),
+        source: .claudeCode)
+}
+
+@Test func sessionLimitIsTheSessionKind() {
+    let display = Display.ready(snapshot([limit(.weeklyAll, percent: 40), limit(.session, percent: 12)]))
+    #expect(display.sessionLimit?.percent == 12)
+    #expect(Display.stale(snapshot([limit(.session, percent: 7)]), .offline).sessionLimit?.percent == 7)
+    #expect(Display.loading.sessionLimit == nil)
+    #expect(Display.unavailable(.offline).sessionLimit == nil)
+    #expect(Display.ready(snapshot([limit(.weeklyAll, percent: 40)])).sessionLimit == nil)
+}
+
+@Test func menuBarTextIsSessionPercentOrDash() {
+    #expect(Display.ready(snapshot([limit(.session, percent: 12)])).menuBarText == "12%")
+    #expect(Display.loading.menuBarText == "–")
+    #expect(Display.unavailable(.tokenExpired).menuBarText == "–")
+}
+
+@Test func menuBarToneWarnsAtEightyOrOnSeverity() {
+    #expect(Display.ready(snapshot([limit(.session, percent: 79)])).menuBarTone == .normal)
+    #expect(Display.ready(snapshot([limit(.session, percent: 80)])).menuBarTone == .warning)
+    #expect(Display.ready(snapshot([limit(.session, percent: 5, severity: .other("warning"))])).menuBarTone == .warning)
+}
+
+@Test func staleNumbersNeverLookCurrent() {
+    #expect(Display.stale(snapshot([limit(.session, percent: 12)]), .offline).menuBarTone == .stale)
+    #expect(Display.stale(snapshot([limit(.session, percent: 95)]), .offline).menuBarTone == .stale)
+}
+
+@Test func noNumberIsNormalTone() {
+    #expect(Display.loading.menuBarTone == .normal)
+    #expect(Display.unavailable(.offline).menuBarTone == .normal)
+}
+
+@Test func snapshotIsKeptWhileStale() {
+    let shown = snapshot([limit(.session, percent: 3)])
+    #expect(Display.ready(shown).snapshot == shown)
+    #expect(Display.stale(shown, .offline).snapshot == shown)
+    #expect(Display.loading.snapshot == nil)
+    #expect(Display.unavailable(.offline).snapshot == nil)
+}

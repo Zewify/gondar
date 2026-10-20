@@ -7,15 +7,10 @@ struct GondarApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            Text("Gondar")
-                .font(Theme.body(13, .semibold))
-                .foregroundStyle(Theme.text)
-                .frame(width: 320)
-                .padding(.vertical, 24)
-                .background(Theme.panel)
+            // Task 7 opens the floating window here.
+            PanelView(model: delegate.model, onPopOut: {})
         } label: {
-            Text(verbatim: delegate.model.menuBarText)
-                .monospacedDigit()
+            MenuBarLabel(text: delegate.model.menuBarText, tone: delegate.model.menuBarTone)
         }
         .menuBarExtraStyle(.window)
     }
