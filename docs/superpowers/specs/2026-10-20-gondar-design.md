@@ -58,6 +58,10 @@ In it, `percent` is an integer from 0 to 100, `group` is `session` or `weekly`, 
 Each entry in `weekly_scoped_shares` points at a limit by its position in `limits` (`limit_index`).
 `spend` uses money objects `{amount_minor, currency, exponent}`.
 The parser must tolerate unknown `kind`, `severity` and extra fields, and skip an entry it cannot read rather than fail the whole response.
+Builder's call: `percent` is read as a number and rounded to the nearest whole one, so a fraction such as `12.5` shows as 13 % rather than dropping the entry.
+A missing `is_active` counts as active.
+If the response lists at least one limit but none can be read, the whole response is unreadable: the panel keeps the last numbers, marked stale, with "Anthropic changed the usage format. An update is needed."
+Reset times are rounded to the nearest minute, because the server jitters about a second either side of the boundary (`09:39:59.757`, `09:40:00.236`) and the clock time must never read a minute early.
 
 Read the Keychain item by running `/usr/bin/security find-generic-password -s "Claude Code-credentials" -w`, not through `SecItemCopyMatching`.
 When measured, that read returned without a prompt, presumably because Claude Code writes the item through `security` itself, so the item's access list already trusts it.
@@ -65,6 +69,7 @@ A direct Keychain API call from an ad hoc signed app would prompt, and the "Alwa
 The builder must confirm the no-prompt behaviour from the installed app, not only from a terminal, before building more of source 1 than the read itself.
 If the installed app does get a prompt, the builder's call is: claude.ai sign-in (source 2) becomes the primary source and is built first, and Claude Code's item is read only when the person turns on "Use Claude Code's login" in the panel, which explains that macOS may ask again after each update.
 Record the result here either way.
+The read has three outcomes: the item's value; no item (`security` exits 44), which means Claude Code is signed out; or a failure, including a read that has not finished after 10 seconds and is stopped, which says nothing about whether Claude Code is signed in and keeps the last numbers, marked stale.
 Confirmed 2026-10-20 from the installed app (`/Applications/Gondar.app`, ad hoc signed, hardened runtime): reading the item through `security` raised no Keychain dialog, and the menu bar showed the live session percentage, matching a direct read of the usage endpoint.
 
 The app never refreshes Claude Code's token itself, because refreshing rotates the refresh token and would leave Claude Code holding a dead one (the first anti-goal).
@@ -87,11 +92,16 @@ When source 2 is the fallback for source 1, it must use the organisation Claude 
 
 A person may switch between Claude accounts (with `/login` in Claude Code), and the app must simply show whichever account is signed in, with no setting to change.
 Claude Code records the signed-in account in `~/.claude.json` under `oauthAccount` (measured 2026-10-20): `emailAddress`, `accountUuid`, `organizationUuid`, `organizationName`, `organizationType`, `seatTier`, among others.
-The app reads it on every poll and also watches the file, so a switch shows within seconds rather than at the next poll.
+Builder's call: the app reads it once at start and again whenever a watch on the home folder sees the file rewritten (debounced by a second), not on every poll, so a switch shows within seconds rather than at the next poll.
 When `accountUuid` or `organizationUuid` changes, the app throws away the previous account's numbers at once and polls immediately; it must never show one account's numbers under another account's name, even for a moment, and shows a loading state instead.
 The Keychain token itself carries no readable account ID, so the builder checks that it belongs to the account in `~/.claude.json` (the `api.anthropic.com/api/oauth/profile` endpoint is the first thing to try, once per token, not every poll); if the two disagree in the middle of a switch, the app waits for the next read rather than guessing.
-Measured 2026-10-20: `GET api.anthropic.com/api/oauth/profile` with the same headers returns `account.uuid` and `organization.uuid`, and both matched `~/.claude.json`'s `accountUuid` and `organizationUuid`; it also gives `account.email`, `organization.name`, `organization.organization_type` (for example `claude_max`), `rate_limit_tier` and `seat_tier`. A scrubbed copy is `fixtures/oauth-profile-2026-10-20.json`. A bad token gets HTTP 401 from the usage endpoint.
+Builder's call: it waits a minute and checks again, twice; the third disagreement in a row shows "Waiting for Claude Code to finish switching accounts." with the last numbers marked stale, and counts as a failed poll so backoff applies, because a switch that never settles (an organisation switch on the same token, say) would otherwise call the profile endpoint every minute and show an endless spinner.
+The count resets as soon as the two agree.
+Measured 2026-10-20: `GET api.anthropic.com/api/oauth/profile` with the same headers returns `account.uuid` and `organization.uuid`, and both matched `~/.claude.json`'s `accountUuid` and `organizationUuid`; it also gives `account.email`, `organization.name`, `organization.organization_type` (for example `claude_max`), `rate_limit_tier` and `seat_tier`.
+A scrubbed copy is `fixtures/oauth-profile-2026-10-20.json`.
+A bad token gets HTTP 401 from the usage endpoint.
 So the profile endpoint is the account check, and its fields are what the header shows; `~/.claude.json` is only the trigger that says "re-check now".
+The profile is fetched once per token (the app keeps a SHA-256 of the token in memory to tell), and again after the file names a different account.
 For source 2, the account is whichever one is signed in to claude.ai in the app's own window, and switching means signing out and in there.
 
 ### Polling
@@ -99,6 +109,14 @@ For source 2, the account is whichever one is signed in to claude.ai in the app'
 Poll every two minutes, and once immediately when the panel or the floating window opens (builder's call on the exact interval, never more often than once a minute).
 On a 429 or a network failure, back off and keep the last values, marked stale.
 When the Mac sleeps, stop; on wake, poll once.
+
+Builder's calls:
+- The interval is 120 seconds.
+- After a failure the wait is 120 s × 2^n for n failures in a row, capped at 30 minutes; a `Retry-After` only ever lengthens it, because the usage endpoint answers 429 with `retry-after: 0`.
+- No poll runs within 60 seconds of the last attempt, the person's Refresh included; the time of the last attempt is saved, so the floor holds across relaunches.
+- Opening the panel or the window does not poll while backing off after a failure, since the scheduled retry handles that and an extra request would prolong a rate limit.
+- An expired token is not counted as a failure: the Keychain is read again at the next interval.
+- A refused token (HTTP 401 or 403) is not counted as a failure either, because the fix is local: the app keeps reading the Keychain every interval and does not call the API again until the token's fingerprint changes, showing "Claude Code's login was refused. Sign in to Claude Code again." meanwhile.
 
 ## Interface
 
@@ -110,24 +128,49 @@ Copy PortGlimpse's `Theme.swift` and its floating window controller as the start
 
 A small mark followed by the session percentage, for example `12%`.
 The text turns amber when the session's `severity` is not `normal`, or at 80 % if `severity` never changes (builder's call on the exact rule, written into this document).
+Builder's call: amber when `severity` is anything but `normal`, or when the percentage is 80 or more.
 When there is no usable data, the mark shows alone with a dash.
+A stale number is drawn muted, whatever its percentage, so it never looks current.
 
 ### The panel
 
 Opened by clicking the menu bar item; a window-style `MenuBarExtra`, as in PortGlimpse.
 A header with the signed-in account's email and organisation name, the plan (from `subscriptionType` and `rateLimitTier` where known, for example "Max · Max 20x") and "Updated 1 min ago".
+Builder's call: the source line ("From Claude Code" or "From claude.ai") sits in the header, under the age, rather than in the footer.
 The floating window shows the email too, small, so a switch is visible there as well.
 One row per limit, in the order the source gives: a name ("Current session", "Weekly · all models", "Weekly · Fable"), a bar, the percentage, and "Resets in 1 h 36 m · 11:20 PM" (the clock time in the Mac's own format, with the date when it is not today).
 Bars are amber; a limit that is not active is drawn muted.
 If extra usage is enabled, a last row shows spend against its limit in its own currency.
+Builder's call: when that limit is zero, the row shows the spend alone, as "<amount> used", since a zero cap is no limit worth comparing with.
 A footer with "Pop out" (opens the floating window), "Refresh", a source line ("From Claude Code" or "From claude.ai"), "Sign in to claude.ai" / "Sign out", "Launch at login", and "Quit".
+As built, the footer holds Settings (a menu with "Launch at login" and, once the repo is public, "Check for updates"), "Pop out", "Refresh" and "Quit"; "Sign in to claude.ai" and "Sign out" come with source 2.
 
 ### The floating window
 
 The same rows as the panel, in a compact layout: always on top, on every Space and over full-screen apps, resizable, reopening at its last position and size.
 When it is narrow it shows only the name, percentage and countdown; the builder chooses the breakpoint.
+Builder's call: the window is narrow below 280 points wide, and cannot be made smaller than 230 × 140 points.
+In the narrow layout a passed reset reads "Resetting now" and a limit without one reads "No reset time".
+The first time it opens, it fits its height to its rows once, keeping its top edge and staying on the screen; after that, or as soon as the person moves or resizes it, the saved frame wins.
 Closing it does not quit the app.
 It remembers whether it was open and reopens at launch if it was.
+
+### Stale numbers and errors
+
+The builder's call on how stale states read: the numbers stay, the menu bar number turns muted, and the panel's header shows how old they are ("Updated 6 min ago") with the reason under it in amber.
+The narrow window, which otherwise shows the email alone, shows the age too once the numbers are stale.
+As a backstop, numbers that no poll has replaced for longer than two intervals and a minute (300 seconds) are shown as stale with "Not updated for several minutes.", even when no failure explains it, so old numbers can never look current.
+Without numbers to keep, the reason shows alone in place of the rows.
+The reasons:
+- "Sign in to Claude Code." — no Keychain item; the previous account's numbers are dropped.
+- "Couldn't read Claude Code's login from the Keychain." — the read failed, timed out or was not in the expected shape.
+- "Open Claude Code to refresh." — the token has expired.
+- "Claude Code's login was refused. Sign in to Claude Code again." — HTTP 401 or 403.
+- "Asked too often. Trying again shortly." — HTTP 429.
+- "Offline." — no network, or the request did not complete.
+- "Anthropic changed the usage format. An update is needed." — a response the parser cannot read.
+- "Waiting for Claude Code to finish switching accounts." — the token and `~/.claude.json` disagreed three polls in a row.
+- "Not updated for several minutes." — the backstop above.
 
 ### Icon
 
