@@ -14,10 +14,17 @@ import Testing
     #expect(delay(70) == .seconds(1800))
 }
 
-@Test func honoursRetryAfterButNotBelowMinimum() {
-    let schedule = PollSchedule(failures: 0)
-    #expect(schedule.nextDelay(retryAfter: .seconds(300)) == .seconds(300))
-    #expect(schedule.nextDelay(retryAfter: .seconds(5)) == .seconds(60))
+@Test func honoursRetryAfterButNeverBelowTheBackoff() {
+    #expect(PollSchedule(failures: 0).nextDelay(retryAfter: .seconds(300)) == .seconds(300))
+    #expect(PollSchedule(failures: 0).nextDelay(retryAfter: .seconds(5)) == .seconds(120))
+    #expect(PollSchedule(failures: 4).nextDelay(retryAfter: .seconds(300)) == .seconds(1800))
+}
+
+/// The live endpoint answers 429 with `retry-after: 0`; that must not turn into a poll every minute.
+@Test func zeroRetryAfterStillBacksOff() {
+    #expect(PollSchedule(failures: 0).nextDelay(retryAfter: .zero) == .seconds(120))
+    #expect(PollSchedule(failures: 2).nextDelay(retryAfter: .zero) == .seconds(480))
+    #expect(PollSchedule(failures: 10).nextDelay(retryAfter: .zero) == .seconds(1800))
 }
 
 @Test func refusesPollWithinAMinute() {

@@ -11,10 +11,12 @@ public struct PollSchedule: Sendable, Equatable {
         self.failures = failures
     }
 
+    /// The backoff (120 s doubling per failure, at most 30 min), or a longer Retry-After.
+    /// Retry-After only ever lengthens the wait: the usage endpoint answers 429 with `retry-after: 0`.
     public func nextDelay(retryAfter: Duration?) -> Duration {
-        if let retryAfter { return max(retryAfter, Self.minimumGap) }
         let exponent = min(max(failures, 0), 4)
-        return min(Self.interval * (1 << exponent), Self.longestDelay)
+        let backoff = min(Self.interval * (1 << exponent), Self.longestDelay)
+        return max(retryAfter ?? .zero, backoff)
     }
 
     public static func mayPollNow(lastAttempt: Date?, now: Date) -> Bool {
