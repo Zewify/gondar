@@ -20,7 +20,7 @@ extension Display {
         guard case .ready(let snapshot) = self else { return self }
         let limit = snapshot.live ? LimitMerge.freshness : Double(Self.staleAfter.components.seconds)
         guard now.timeIntervalSince(snapshot.fetchedAt) > limit else { return self }
-        return .stale(snapshot, .notUpdating)
+        return .stale(snapshot.notLive, .notUpdating)
     }
 
     /// The numbers being shown, current or kept from an earlier poll.

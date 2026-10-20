@@ -19,6 +19,12 @@ enum GondarFolder {
         let temp = url.deletingLastPathComponent().appendingPathComponent(".\(url.lastPathComponent).\(getpid()).tmp").path
         let fd = open(temp, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW, 0o600)
         guard fd >= 0 else { return false }
+        // A temp file that already existed keeps its old mode through O_CREAT; set it.
+        guard fchmod(fd, 0o600) == 0 else {
+            close(fd)
+            unlink(temp)
+            return false
+        }
         let written = data.withUnsafeBytes { write(fd, $0.baseAddress, $0.count) }
         let closed = close(fd)
         guard written == data.count, closed == 0, rename(temp, url.path) == 0 else {
@@ -47,7 +53,9 @@ final class FeedWatcher {
         self.onChange = onChange
     }
 
-    func start() {
+    /// Starts watching. `baseline` is the feed's modification date when the caller last read it, taken before that read,
+    /// so a write that landed between that read and now is still reported.
+    func start(baseline: Date?) {
         guard source == nil else { return }
         GondarFolder.create()
         let descriptor = open(GondarFolder.url.path, O_EVTONLY)
@@ -61,8 +69,9 @@ final class FeedWatcher {
         }
         source.setCancelHandler { close(descriptor) }
         self.source = source
-        lastModified = Self.modificationDate()
+        lastModified = baseline
         source.resume()
+        folderChanged()
     }
 
     /// The feed file as it is now, read off the main actor.
@@ -88,7 +97,7 @@ final class FeedWatcher {
         }
     }
 
-    private static func modificationDate() -> Date? {
+    nonisolated static func modificationDate() -> Date? {
         (try? FileManager.default.attributesOfItem(atPath: GondarFolder.feedURL.path))?[.modificationDate] as? Date
     }
 }

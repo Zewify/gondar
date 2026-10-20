@@ -2,9 +2,10 @@
 //
 //     gondar-feed <the existing status line command…>
 //
-// Reads Claude Code's JSON from stdin, merges only its rate limits and the time into
-// ~/Library/Application Support/Gondar/statusline.json, then runs the wrapped command with the same
+// Reads Claude Code's JSON from stdin, merges only its rate limits, their times and a hash of the session's ID with its API time
+// into ~/Library/Application Support/Gondar/statusline.json (see StatusLineFeed.mergeStored), then runs the wrapped command with the same
 // stdin, its stdout and stderr inherited, and exits with its status. Saving never fails the command.
+import CryptoKit
 import Darwin
 import Foundation
 import GondarCore
@@ -36,17 +37,28 @@ func save(_ input: Data) {
     }
 
     let existing = FileManager.default.contents(atPath: path)
-    guard let feed = StatusLineFeed.mergeStored(existing: existing, incoming: input, receivedAt: Date()) else { return }
+    guard let feed = StatusLineFeed.mergeStored(existing: existing, incoming: input, receivedAt: Date(), sessionKey: sessionKey) else { return }
     // A temp name of its own per process, so a writer that ignores the lock never writes into another's file.
     let temp = folder + "/.statusline.json.\(getpid()).tmp"
     let fd = open(temp, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW, 0o600)
     guard fd >= 0 else { return }
+    // A temp file that already existed keeps its old mode through O_CREAT; set it.
+    guard fchmod(fd, 0o600) == 0 else {
+        close(fd)
+        unlink(temp)
+        return
+    }
     let written = feed.withUnsafeBytes { write(fd, $0.baseAddress, $0.count) }
     let closed = close(fd)
     guard written == feed.count, closed == 0, rename(temp, path) == 0 else {
         unlink(temp)
         return
     }
+}
+
+/// What the feed file remembers a session by: a SHA-256 of its ID, so the ID itself is never written.
+func sessionKey(_ sessionID: String) -> String {
+    SHA256.hash(data: Data(sessionID.utf8)).map { String(format: "%02x", $0) }.joined()
 }
 
 /// Temp files a killed writer left behind; any older than a minute is no one's.

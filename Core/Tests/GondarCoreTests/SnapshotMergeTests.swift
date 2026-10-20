@@ -4,98 +4,144 @@ import Testing
 @testable import GondarCore
 
 private let now = Date(timeIntervalSince1970: 1_791_990_000)
+private let switched = now - 3600
+private let mine = AccountKey(accountUUID: "a", organizationUUID: "o")
+private let theirs = AccountKey(accountUUID: "b", organizationUUID: "o")
 
-private let localProfile = Profile(
-    accountUUID: "a", email: "a@example.com", organizationUUID: "o",
-    organizationName: "Org", organizationType: "claude_team", rateLimitTier: nil, seatTier: nil)
+private func profile(_ account: AccountKey, email: String) -> Profile {
+    Profile(accountUUID: account.accountUUID, email: email, organizationUUID: account.organizationUUID,
+            organizationName: "Org", organizationType: "claude_team", rateLimitTier: nil, seatTier: nil)
+}
+
+private let local = profile(mine, email: "local@example.com")
+private let confirmed = (profile: profile(mine, email: "confirmed@example.com"), plan: Optional("Confirmed plan"))
 
 private func limit(_ kind: LimitKind, _ percent: Int, scope: String? = nil, position: Int = 0) -> UsageLimit {
     UsageLimit(kind: kind, scopeName: scope, percent: percent, severity: .normal,
                resetsAt: nil, isActive: true, shareOfWeekly: nil, position: position)
 }
 
-private func api(_ limits: [UsageLimit], at fetchedAt: Date) -> Snapshot {
-    Snapshot(
-        profile: Profile(
-            accountUUID: "a", email: "confirmed@example.com", organizationUUID: "o",
-            organizationName: "Confirmed Org", organizationType: "claude_team", rateLimitTier: nil, seatTier: nil),
-        plan: "Team", report: UsageReport(limits: limits, extra: nil), fetchedAt: fetchedAt, source: .claudeCode)
+private func api(_ limits: [UsageLimit], at fetchedAt: Date, account: AccountKey = mine) -> Snapshot {
+    Snapshot(profile: profile(account, email: "api@example.com"), plan: "Team",
+             report: UsageReport(limits: limits, extra: nil), fetchedAt: fetchedAt, source: .claudeCode)
 }
 
 private func feed(_ limits: [UsageLimit], at receivedAt: Date) -> FeedSnapshot {
     FeedSnapshot(receivedAt: receivedAt, limits: limits)
 }
 
+private func build(api: Snapshot? = nil, feed: FeedSnapshot? = nil, account: AccountKey? = mine,
+                   confirmed: (profile: Profile, plan: String?)? = nil, local: Profile? = local) -> Snapshot? {
+    SnapshotMerge.build(api: api, feed: feed, lastAccountChange: switched, account: account,
+                        confirmed: confirmed, local: local, now: now)
+}
+
 @Test func feedAloneIsLiveUnderTheLocalHeader() throws {
-    let shown = try #require(SnapshotMerge.build(
-        api: nil, feed: feed([limit(.session, 40)], at: now - 30), feedAccepted: true,
-        header: (localProfile, "Team"), now: now))
+    let shown = try #require(build(feed: feed([limit(.session, 40)], at: now - 30)))
     #expect(shown.live)
-    #expect(shown.profile == localProfile)
+    #expect(shown.profile == local)
     #expect(shown.plan == "Team")
     #expect(shown.fetchedAt == now - 30)
     #expect(shown.report.limits.map(\.percent) == [40])
 }
 
-@Test func feedAloneNeedsAHeader() {
-    #expect(SnapshotMerge.build(api: nil, feed: feed([limit(.session, 40)], at: now), feedAccepted: true, header: nil, now: now) == nil)
+@Test func theConfirmedProfileWinsOverTheLocalOne() throws {
+    let shown = try #require(build(feed: feed([limit(.session, 40)], at: now), confirmed: confirmed))
+    #expect(shown.profile.email == "confirmed@example.com")
+    #expect(shown.plan == "Confirmed plan")
+}
+
+@Test func feedAloneNeedsAHeaderOfThisAccount() {
+    let fresh = feed([limit(.session, 40)], at: now)
+    #expect(build(feed: fresh, local: nil) == nil)
+    // Another account's local profile or confirmed profile is never used.
+    #expect(build(feed: fresh, local: profile(theirs, email: "theirs@example.com")) == nil)
+    #expect(build(feed: fresh, confirmed: (profile(theirs, email: "theirs@example.com"), "Max"), local: nil) == nil)
+    let shown = build(feed: fresh, confirmed: (profile(theirs, email: "theirs@example.com"), "Max"))
+    #expect(shown?.profile == local)
+}
+
+@Test func anotherAccountsApiSnapshotIsNeverUsed() {
+    #expect(build(api: api([limit(.session, 10)], at: now, account: theirs)) == nil)
+    let shown = build(api: api([limit(.session, 10)], at: now, account: theirs), feed: feed([limit(.session, 40)], at: now))
+    #expect(shown?.profile == local)
+    #expect(shown?.report.limits.map(\.percent) == [40])
+}
+
+@Test func nothingWithoutAnAccount() {
+    #expect(build(api: api([limit(.session, 10)], at: now), feed: feed([limit(.session, 40)], at: now), account: nil) == nil)
 }
 
 @Test func nothingToShowWithoutApiOrUsableFeed() {
-    #expect(SnapshotMerge.build(api: nil, feed: nil, feedAccepted: true, header: (localProfile, nil), now: now) == nil)
-    #expect(SnapshotMerge.build(api: nil, feed: feed([limit(.session, 40)], at: now), feedAccepted: false,
-                                header: (localProfile, nil), now: now) == nil)
-    #expect(SnapshotMerge.build(api: nil, feed: feed([], at: now), feedAccepted: true, header: (localProfile, nil), now: now) == nil)
+    #expect(build() == nil)
+    #expect(build(feed: feed([], at: now)) == nil)
+    #expect(build(feed: feed([limit(.session, 40)], at: now - 601)) == nil)
 }
 
-@Test func freshFeedReplacesApiNumbersAndKeepsTheConfirmedProfile() throws {
-    let shown = try #require(SnapshotMerge.build(
+@Test func aFeedEntryFromBeforeTheSwitchIsIgnored() throws {
+    let mixed = FeedSnapshot(entries: [
+        FeedEntry(limit: limit(.session, 40), receivedAt: now - 10),
+        FeedEntry(limit: limit(.weeklyAll, 77, position: 1), receivedAt: switched - 1),
+    ])
+    let shown = try #require(build(api: api([limit(.session, 10), limit(.weeklyAll, 20, position: 1)], at: now - 60), feed: mixed))
+    #expect(shown.report.limits.map(\.percent) == [40, 20])
+    #expect(build(feed: feed([limit(.session, 40)], at: switched)) == nil)
+}
+
+@Test func freshFeedReplacesApiNumbersAndKeepsTheApiProfile() throws {
+    let shown = try #require(build(
         api: api([limit(.session, 10), limit(.weeklyScoped, 5, scope: "Fable", position: 2)], at: now - 60),
-        feed: feed([limit(.session, 40)], at: now - 120), feedAccepted: true,
-        header: (localProfile, "Local"), now: now))
+        feed: feed([limit(.session, 40)], at: now - 120), confirmed: confirmed))
     #expect(shown.live)
-    #expect(shown.profile.email == "confirmed@example.com")
+    #expect(shown.profile.email == "api@example.com")
     #expect(shown.plan == "Team")
     #expect(shown.report.limits.map(\.percent) == [40, 5])
-    // The newest of the two.
+    // The newest of the times used.
     #expect(shown.fetchedAt == now - 60)
 }
 
-@Test func rejectedFeedLeavesTheApiAlone() throws {
-    let shown = try #require(SnapshotMerge.build(
-        api: api([limit(.session, 10)], at: now - 60), feed: feed([limit(.session, 40)], at: now - 30), feedAccepted: false,
-        header: (localProfile, nil), now: now))
+@Test func aQuietFeedLeavesTheApiAlone() throws {
+    let shown = try #require(build(api: api([limit(.session, 10)], at: now - 3600), feed: feed([limit(.session, 40)], at: now - 700)))
     #expect(!shown.live)
     #expect(shown.report.limits.map(\.percent) == [10])
-    #expect(shown.fetchedAt == now - 60)
+    #expect(shown.fetchedAt == now - 3600)
 }
 
-/// After the feed goes quiet its numbers are no longer live, but they still beat older API numbers.
-@Test func quietFeedNewerThanTheApiStillShowsItsNumbers() throws {
-    let shown = try #require(SnapshotMerge.build(
-        api: api([limit(.session, 10)], at: now - 3600), feed: feed([limit(.session, 40)], at: now - 700), feedAccepted: true,
-        header: (localProfile, nil), now: now))
-    #expect(!shown.live)
-    #expect(shown.report.limits.map(\.percent) == [40])
-    #expect(shown.fetchedAt == now - 700)
+// MARK: - Following the account
+
+@Test func followingAnotherAccountDropsItsInputs() {
+    var sources = UsageSources(now: now - 7200)
+    let followed = sources.follow(mine, at: now - 600)
+    #expect(followed)
+    sources.apiAnswered(api([limit(.session, 10)], at: now - 500))
+    sources.apiFailed(.rateLimited)
+    #expect(sources.api != nil && sources.apiProblem == .rateLimited)
+    // The same account again changes nothing.
+    let followedAgain = sources.follow(mine, at: now - 400)
+    #expect(!followedAgain)
+    #expect(sources.lastAccountChange == now - 600 && sources.api != nil)
+    let followedOther = sources.follow(theirs, at: now - 300)
+    #expect(followedOther)
+    #expect(sources.api == nil && sources.apiProblem == nil && sources.lastAccountChange == now - 300)
 }
 
-@Test func quietFeedOlderThanTheApiIsIgnored() throws {
-    let shown = try #require(SnapshotMerge.build(
-        api: api([limit(.session, 10)], at: now - 60), feed: feed([limit(.session, 40)], at: now - 700), feedAccepted: true,
-        header: (localProfile, nil), now: now))
-    #expect(!shown.live)
-    #expect(shown.report.limits.map(\.percent) == [10])
+@Test func anApiResultForAnotherAccountIsIgnored() {
+    var sources = UsageSources(now: now)
+    sources.follow(mine, at: now)
+    sources.apiAnswered(api([limit(.session, 10)], at: now, account: theirs))
+    #expect(sources.api == nil)
+    sources.apiFailed(.offline)
+    sources.apiAnswered(api([limit(.session, 10)], at: now))
+    #expect(sources.api != nil && sources.apiProblem == nil)
 }
 
-@Test func quietFeedAloneIsShownButNotLive() throws {
-    let shown = try #require(SnapshotMerge.build(
-        api: nil, feed: feed([limit(.session, 40)], at: now - 700), feedAccepted: true, header: (localProfile, nil), now: now))
-    #expect(!shown.live)
-    #expect(shown.fetchedAt == now - 700)
-}
-
-@Test func futureFeedIsIgnored() {
-    #expect(SnapshotMerge.build(api: nil, feed: feed([limit(.session, 40)], at: now + 60), feedAccepted: true,
-                                header: (localProfile, nil), now: now) == nil)
+@Test func feedFromBeforeTheSwitchIsIgnoredAfterIt() throws {
+    var sources = UsageSources(now: now - 7200)
+    sources.follow(mine, at: now - 7200)
+    sources.feed = feed([limit(.session, 40)], at: now - 30)
+    #expect(sources.snapshot(confirmed: nil, local: local, now: now)?.live == true)
+    #expect(sources.nextExpiry(now: now) == now - 30 + 600)
+    sources.follow(theirs, at: now - 10)
+    #expect(sources.snapshot(confirmed: nil, local: profile(theirs, email: "b@example.com"), now: now) == nil)
+    #expect(sources.nextExpiry(now: now) == nil)
 }

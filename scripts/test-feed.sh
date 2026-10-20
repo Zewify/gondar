@@ -14,23 +14,46 @@ file="$support/Gondar/statusline.json"
 failures=0
 fail() { echo "FAIL: $*" >&2; failures=$((failures + 1)); }
 
-input='{"session_id":"s-1","transcript_path":"/x/t.jsonl","cwd":"/private/project","model":{"id":"m"},"cost":{"total_cost_usd":1.5},"rate_limits":{"five_hour":{"used_percentage":42.4,"resets_at":1790000000},"seven_day":{"used_percentage":7,"resets_at":1790500000}}}'
+# Claude Code's input for session s-1 after $1 ms of API time (and $2 % used); only a rise in that time makes its numbers count.
+input() {
+  printf '{"session_id":"s-1","transcript_path":"/x/t.jsonl","cwd":"/private/project","model":{"id":"m"},"cost":{"total_cost_usd":1.5,"total_api_duration_ms":%s},"rate_limits":{"five_hour":{"used_percentage":%s,"resets_at":1790000000},"seven_day":{"used_percentage":7,"resets_at":1790500000}}}' "$1" "${2:-42.4}"
+}
+# A limit's own received time in the file.
+received() { /usr/bin/python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["rate_limits"][sys.argv[2]]["received_at"])' "$file" "$1"; }
 
 # The wrapped command sees stdin unchanged, byte for byte.
-out="$(printf '%s' "$input" | "$feed" cat)"
-[[ "$out" == "$input" ]] || fail "cat did not echo stdin unchanged: $out"
+first="$(input 100)"
+out="$(printf '%s' "$first" | "$feed" cat)"
+[[ "$out" == "$first" ]] || fail "cat did not echo stdin unchanged: $out"
 
-# The written file: mode 600, folder 700, only the limits and the time.
+# A session's first input only records its baseline; its next, after more API time, counts.
 [[ -f "$file" ]] || fail "no feed file written"
+grep -q '"five_hour"' "$file" && fail "a first sighting's numbers were stored"
+input 200 | "$feed" true
+
+# The written file: mode 600, folder 700, only the limits, their times and hashed sessions.
 if [[ -f "$file" ]]; then
   [[ "$(stat -f %Lp "$file")" == 600 ]] || fail "file mode is $(stat -f %Lp "$file"), not 600"
   [[ "$(stat -f %Lp "$support/Gondar")" == 700 ]] || fail "folder mode is $(stat -f %Lp "$support/Gondar"), not 700"
-  for word in cwd transcript_path session_id model cost private; do
-    grep -q "$word" "$file" && fail "file contains $word"
+  for word in cwd transcript_path session_id s-1 model cost total private; do
+    grep -q -- "$word" "$file" && fail "file contains $word"
   done
   grep -q '"five_hour"' "$file" || fail "file lacks five_hour"
   grep -q '"received_at"' "$file" || fail "file lacks received_at"
+  grep -q "$(printf s-1 | shasum -a 256 | cut -c1-64)" "$file" || fail "file lacks the session's hash"
 fi
+
+# An idle session re-sending its numbers with the same API time changes nothing, not even the limit's time.
+stamp="$(received five_hour)"
+perl -e 'select undef, undef, undef, 1.1'
+before="$(cat "$file")"
+input 200 | "$feed" true
+input 200 99 | "$feed" true
+[[ "$(cat "$file")" == "$before" ]] || fail "an idle re-send changed the file"
+[[ "$(received five_hour)" == "$stamp" ]] || fail "an idle re-send moved the time"
+# More API time is a genuine report: the time moves.
+input 300 | "$feed" true
+[[ "$(received five_hour)" != "$stamp" ]] || fail "a genuine report did not move the time"
 
 # Input without limits (a new or API-key session) leaves the stored numbers alone.
 before="$(cat "$file")"
@@ -38,9 +61,10 @@ printf '{}' | "$feed" true
 printf '{"cwd":"/x","rate_limits":null}' | "$feed" true
 [[ "$(cat "$file")" == "$before" ]] || fail "input without limits changed the file"
 
-# A new window replaces the old; then an idle session re-sending an older, lower number for it does not lower it.
-printf '{"rate_limits":{"five_hour":{"used_percentage":40,"resets_at":1790018000}}}' | "$feed" true
-printf '{"rate_limits":{"five_hour":{"used_percentage":20,"resets_at":1790018000}}}' | "$feed" true
+# A new window replaces the old; then a session behind it reporting a lower number for that window does not lower it.
+printf '{"session_id":"s-1","cost":{"total_api_duration_ms":400},"rate_limits":{"five_hour":{"used_percentage":40,"resets_at":1790018000}}}' | "$feed" true
+printf '{"session_id":"s-2","cost":{"total_api_duration_ms":1}}' | "$feed" true
+printf '{"session_id":"s-2","cost":{"total_api_duration_ms":2},"rate_limits":{"five_hour":{"used_percentage":20,"resets_at":1790018000}}}' | "$feed" true
 grep -q '"used_percentage":40' "$file" || fail "same window at 20 % replaced 40 %: $(cat "$file")"
 grep -q '"seven_day"' "$file" || fail "a limit the input lacked was dropped"
 
@@ -59,7 +83,7 @@ perl -e 'use Fcntl ":flock"; open F, ">>", $ARGV[0]; flock F, LOCK_EX; $| = 1; p
 holder=$!
 until [[ -s "$home/held" ]]; do perl -e 'select undef, undef, undef, 0.01'; done
 start=$(perl -MTime::HiRes=time -e 'printf "%d", time * 1000')
-out="$(printf '{"rate_limits":{"five_hour":{"used_percentage":99,"resets_at":1790036000}}}' | "$feed" echo ran)"
+out="$(printf '{"session_id":"s-1","cost":{"total_api_duration_ms":500},"rate_limits":{"five_hour":{"used_percentage":99,"resets_at":1790036000}}}' | "$feed" echo ran)"
 end=$(perl -MTime::HiRes=time -e 'printf "%d", time * 1000')
 kill "$holder"; wait "$holder" 2>/dev/null || true
 [[ "$out" == ran ]] || fail "held lock: wrapped command printed '$out'"
@@ -98,12 +122,12 @@ printf '{}' | "$feed" gondar-no-such-command 2>/dev/null && status=0 || status=$
 # An unwritable Application Support folder still runs the wrapped command.
 rm -rf "$support/Gondar"
 chmod 555 "$support"
-out="$(printf '%s' "$input" | "$feed" echo ran)" && status=0 || status=$?
+out="$(input 600 | "$feed" echo ran)" && status=0 || status=$?
 [[ "$out" == ran && $status == 0 ]] || fail "read-only folder: got '$out', status $status"
 chmod 755 "$support"
 
 # With no wrapped command: no output, exit 0, and the file is still written.
-out="$(printf '%s' "$input" | "$feed")" && status=0 || status=$?
+out="$(input 700 | "$feed")" && status=0 || status=$?
 [[ -z "$out" && $status == 0 ]] || fail "no arguments: got '$out', status $status"
 [[ -f "$file" ]] || fail "no arguments: no feed file written"
 
@@ -111,7 +135,7 @@ out="$(printf '%s' "$input" | "$feed")" && status=0 || status=$?
 best=999999
 for _ in 1 2 3 4 5; do
   start=$(perl -MTime::HiRes=time -e 'printf "%d", time * 1000')
-  printf '%s' "$input" | "$feed" true
+  input 800 | "$feed" true
   end=$(perl -MTime::HiRes=time -e 'printf "%d", time * 1000')
   (( end - start < best )) && best=$((end - start))
 done

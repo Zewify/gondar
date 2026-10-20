@@ -62,19 +62,15 @@ final class UsageModel {
     @ObservationIgnored private var profilePlan: String?
     /// The header fields `~/.claude.json` gives, shown until the profile endpoint confirms them.
     @ObservationIgnored private var localProfile: Profile?
-    /// The last usage the API returned, for the current account; cleared on a switch.
-    @ObservationIgnored private var apiSnapshot: Snapshot?
-    /// Why the last API poll failed, until the next success.
-    @ObservationIgnored private var apiProblem: Problem?
-    /// The status line feed as last read.
-    @ObservationIgnored private var feed: FeedSnapshot?
-    /// Feed data received before this is ignored: it may be another account's.
-    @ObservationIgnored private var lastAccountChange = Date()
-    /// Whether the numbers shown include a fresh feed.
+    /// The API's last result and failure, the feed, and the account they belong to (see `UsageSources`).
+    @ObservationIgnored private var sources = UsageSources(now: Date())
+    /// Whether the numbers shown include fresh feed entries.
     @ObservationIgnored private var isLive = false
+    /// `slowedByFeed` as of the last publish, so the next poll moves only when it changes.
+    @ObservationIgnored private var wasSlowed = false
     @ObservationIgnored private var liveExpiry: Task<Void, Never>?
-    /// What `last.json` holds, so an unchanged snapshot is not written again.
-    @ObservationIgnored private var lastSaved: Data?
+    /// The numbers `last.json` holds and when they were written: rewritten when the limits change, otherwise at most once a minute.
+    @ObservationIgnored private var lastSaved: (account: AccountKey, report: UsageReport, at: Date)?
 
     private static let logger = Logger(subsystem: "com.zewify.gondar", category: "usage")
 
@@ -119,10 +115,12 @@ final class UsageModel {
             let watcher = AccountFileWatcher { [weak self] file in self?.accountFileChanged(file) }
             watcher.start()
             self.watcher = watcher
+            // Read before watching, with the modification date taken first, so the watcher reports any write after it.
+            let baseline = FeedWatcher.modificationDate()
+            self.sources.feed = await FeedWatcher.read()
             let feedWatcher = FeedWatcher { [weak self] feed in self?.feedChanged(feed) }
-            feedWatcher.start()
+            feedWatcher.start(baseline: baseline)
             self.feedWatcher = feedWatcher
-            self.feed = await FeedWatcher.read()
             self.publish()
             // A relaunch within a minute of the last poll waits out the rest of it.
             self.pollOrWait()
@@ -263,8 +261,7 @@ final class UsageModel {
         guard isCurrent() else { return nil }
         switch result {
         case .success(let report):
-            apiSnapshot = Snapshot(profile: profileForThisPoll, plan: profilePlan, report: report, fetchedAt: Date(), source: .claudeCode)
-            apiProblem = nil
+            sources.apiAnswered(Snapshot(profile: profileForThisPoll, plan: profilePlan, report: report, fetchedAt: Date(), source: .claudeCode))
             schedule.failures = 0
             publish()
             return cadence
@@ -321,9 +318,9 @@ final class UsageModel {
     }
 
     /// The feed is live and the API has answered for this account, so it is asked only for what the feed lacks.
-    private var slowedByFeed: Bool { isLive && apiSnapshot != nil }
+    private var slowedByFeed: Bool { isLive && sources.api != nil }
 
-    /// When the numbers turn live or stop being live, the scheduled poll moves to the new cadence, counted from the last attempt:
+    /// When the feed starts or stops slowing the API, the scheduled poll moves to the new cadence, counted from the last attempt:
     /// a feed gone quiet brings the usual schedule back at once rather than after the rest of 15 minutes.
     /// Only a plain scheduled poll moves; a running poll or a backoff after a failure is left alone.
     private func cadenceChanged() {
@@ -340,24 +337,22 @@ final class UsageModel {
     private func publish() {
         let current = Date()
         now = current
-        let account = state.account
-        let api = apiSnapshot.flatMap { $0.profile.accountKey == account ? $0 : nil }
-        let accepted = feed.map { $0.receivedAt > lastAccountChange } ?? false
-        let shown = SnapshotMerge.build(api: api, feed: feed, feedAccepted: accepted, header: header(), now: current)
+        let confirmed = profile.map { (profile: $0, plan: profilePlan) }
+        let shown = sources.snapshot(confirmed: confirmed, local: localProfile, now: current)
         if let shown {
             state.received(shown)
-            if !shown.live, let apiProblem { state.failed(apiProblem) }
-            save(shown)
-        } else if let apiProblem {
-            state.failed(apiProblem)
+            if !shown.live, let problem = sources.apiProblem { state.failed(problem) }
+            save(shown, at: current)
+        } else if let problem = sources.apiProblem {
+            state.failed(problem)
         }
 
         let live = shown?.live ?? false
         liveExpiry?.cancel()
         liveExpiry = nil
-        if live, let feed {
-            // Shown again as the feed turns quiet, so the source line, the staleness and the cadence follow at once.
-            let left = feed.receivedAt.timeIntervalSince(current) + LimitMerge.freshness + 1
+        if let expiry = sources.nextExpiry(now: current) {
+            // Shown again as a feed entry turns quiet, so the source line, the staleness and the cadence follow at once.
+            let left = expiry.timeIntervalSince(current) + 1
             liveExpiry = Task { [weak self] in
                 try? await Task.sleep(for: .milliseconds(Int64(max(left, 1) * 1000)))
                 guard !Task.isCancelled, let self else { return }
@@ -365,53 +360,48 @@ final class UsageModel {
                 self.publish()
             }
         }
-        if live != isLive {
-            isLive = live
+        isLive = live
+        // Only a change in whether the feed slows the API moves the next poll: numbers that turn live before the API has
+        // answered once must not push back the first poll.
+        if slowedByFeed != wasSlowed {
+            wasSlowed = slowedByFeed
             cadenceChanged()
         }
     }
 
     private func apiFailed(_ problem: Problem) {
-        apiProblem = problem
+        sources.apiFailed(problem)
         publish()
     }
 
-    /// The header for numbers the API has not confirmed: the confirmed profile if there is one for this account,
-    /// otherwise `~/.claude.json`'s fields for it. Never another account's.
-    private func header() -> (profile: Profile, plan: String?)? {
-        guard let account = state.account else { return nil }
-        if let profile, profile.accountKey == account { return (profile, profilePlan) }
-        if let localProfile, localProfile.accountKey == account {
-            return (localProfile, PlanText.label(organizationType: localProfile.organizationType, rateLimitTier: localProfile.rateLimitTier))
-        }
-        return nil
-    }
-
     private func feedChanged(_ feed: FeedSnapshot?) {
-        self.feed = feed
+        sources.feed = feed
         publish()
     }
 
     /// Shows the numbers the last launch saved, marked as restored, when they belong to the account `~/.claude.json` names.
+    /// The header is `~/.claude.json`'s for that account; no profile has been fetched yet at launch.
     private func restoreLastSnapshot() {
-        guard let account = state.account, let header = header(),
+        guard let account = state.account, let localProfile, localProfile.accountKey == account,
             let data = try? Data(contentsOf: GondarFolder.lastURL),
             let saved = SavedSnapshot.restore(saved: data, currentAccount: account)
         else { return }
-        lastSaved = data
+        lastSaved = (account, saved.report, Date())
         state.restore(Snapshot(
-            profile: header.profile, plan: header.plan, report: saved.report, fetchedAt: saved.fetchedAt, source: .claudeCode
+            profile: localProfile,
+            plan: PlanText.label(organizationType: localProfile.organizationType, rateLimitTier: localProfile.rateLimitTier),
+            report: saved.report, fetchedAt: saved.fetchedAt, source: .claudeCode
         ))
     }
 
-    /// Writes `last.json` (IDs, limits and a time; owner-only) when what is shown changed.
-    private func save(_ shown: Snapshot) {
+    /// Writes `last.json` (IDs, limits and a time; owner-only) when the limits changed, otherwise at most once a minute,
+    /// since live numbers republish on every status line refresh.
+    private func save(_ shown: Snapshot, at time: Date) {
         guard let account = state.account else { return }
-        let data = SavedSnapshot.encode(snapshot: shown, accountKey: account)
-        guard data != lastSaved else { return }
+        if let lastSaved, lastSaved.account == account, lastSaved.report == shown.report, time.timeIntervalSince(lastSaved.at) < 60 { return }
         GondarFolder.create()
-        if GondarFolder.writeAtomically(data, to: GondarFolder.lastURL) {
-            lastSaved = data
+        if GondarFolder.writeAtomically(SavedSnapshot.encode(snapshot: shown, accountKey: account), to: GondarFolder.lastURL) {
+            lastSaved = (account, shown.report, time)
         } else {
             Self.logger.error("Couldn't save the last numbers")
         }
@@ -419,14 +409,10 @@ final class UsageModel {
 
     // MARK: Account changes, sleep and wake
 
-    /// Follows a different account (or none): the previous account's API result and failure go, and feed data from
-    /// before now is ignored. The same account again changes nothing.
+    /// Follows a different account (or none): `UsageSources` drops the previous account's API result and failure and ignores
+    /// feed data from before now. The same account again changes nothing.
     private func setAccount(_ key: AccountKey?) {
-        if key != state.account {
-            lastAccountChange = Date()
-            apiSnapshot = nil
-            apiProblem = nil
-        }
+        sources.follow(key, at: Date())
         state.accountChanged(to: key)
     }
 

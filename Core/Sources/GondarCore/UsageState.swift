@@ -21,6 +21,11 @@ public struct Snapshot: Sendable, Equatable {
         self.source = source
         self.live = live
     }
+
+    /// The same numbers, no longer called live: kept numbers shown stale never say "Live".
+    public var notLive: Snapshot {
+        Snapshot(profile: profile, plan: plan, report: report, fetchedAt: fetchedAt, source: source)
+    }
 }
 
 public enum Problem: Sendable, Equatable {
@@ -112,13 +117,13 @@ public struct UsageState: Sendable, Equatable {
     /// Numbers an earlier launch saved, shown stale while nothing newer is: only for the current account, and only while loading.
     public mutating func restore(_ snapshot: Snapshot) {
         guard let account, snapshot.profile.accountKey == account, display == .loading else { return }
-        display = .stale(snapshot, .restored)
+        display = .stale(snapshot.notLive, .restored)
     }
 
     public mutating func failed(_ problem: Problem) {
         switch display {
         case .ready(let last), .stale(let last, _):
-            display = .stale(last, problem)
+            display = .stale(last.notLive, problem)
         case .loading, .unavailable:
             display = .unavailable(problem)
         }

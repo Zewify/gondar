@@ -127,7 +127,7 @@ enum StatusLineHookupAlert {
             alert.addButton(withTitle: "Close")
         }
         alert.accessoryView = commandField(hookup.jsonValue)
-        NSApp.activate(ignoringOtherApps: true)
+        NSApp.activate()
         let response = alert.runModal()
         if case .connected = hookup { return }
         if response == .alertFirstButtonReturn {

@@ -53,19 +53,22 @@ The object also carries the session's working folder, transcript path, model and
 
 The feed: a small command-line tool, `gondar-feed`, shipped inside the app bundle (`Gondar.app/Contents/MacOS/gondar-feed`).
 The status line command becomes `"/Applications/Gondar.app/Contents/MacOS/gondar-feed" <the existing command>`, for example `… gondar-feed npx -y example-statusline`.
-It reads all of standard input, writes only `rate_limits` and the time it received them to `~/Library/Application Support/Gondar/statusline.json` (atomically, mode 0600), then runs the wrapped command with the same input and passes its output and exit code through, so the terminal status line looks exactly as before; with no wrapped command it prints nothing.
+It reads all of standard input, merges only `rate_limits`, each limit's own received time, and a SHA-256 of the session's ID with that session's `cost.total_api_duration_ms` and when it was last seen (never the ID itself; forgotten after a day unseen) into `~/Library/Application Support/Gondar/statusline.json` (atomically, mode 0600), then runs the wrapped command with the same input and passes its output and exit code through, so the terminal status line looks exactly as before; with no wrapped command it prints nothing.
 It must never slow the status line down noticeably (the write is a few hundred bytes) and must never fail the wrapped command: if the write fails, it still runs it.
 Gondar never edits `~/.claude/settings.json` itself; the Settings menu has "Connect Claude Code's status line…", which shows the exact change with a Copy button, and the person makes it.
 
 How Gondar uses it:
 - It watches the file and reads it on every change.
 - The mapping: `five_hour` → "Current session", `seven_day` → "Weekly · all models", `seven_day_sonnet` → "Weekly · Sonnet", `seven_day_opus` → "Weekly · Opus"; percentages rounded, reset times rounded to the minute.
-- The status line carries no account, so feed data belongs to whichever account `~/.claude.json` names when it arrives; data received before the last account change is ignored.
-- Feed data counts as fresh for 10 minutes. A limit present in fresh feed data is shown from the feed; limits only the API knows (Fable, extra usage, anything new) come from the API.
-- While the feed is fresh, the API is asked at most every 15 minutes (for those extra limits and for the account check); otherwise polling is as in "Polling" below.
+- Claude Code re-sends a session's last numbers on every refresh, even when the session has asked Anthropic nothing since, and a session opened before a `/login` keeps the previous account's numbers until its next response (reviewer's finding, ruled 2026-10-20).
+  So numbers count only from a genuine report: one whose session's `cost.total_api_duration_ms` rose since that session's previous input. A session's first input only records that baseline, so a new session's numbers appear one response later.
+  A genuine report moves only the limits it reported, each to its own received time, by the window rules (same window: the higher number; a later window replaces an earlier one).
+- The status line carries no account, so a limit belongs to whichever account `~/.claude.json` names when it arrives; a limit received before the last account change is ignored, judged by its own time. Gondar's launch counts as an account change, since it cannot know what changed while it was not running.
+- Each limit counts as fresh for 10 minutes from its own time. A limit present in fresh feed data is shown from the feed (in the same window as the API's, the higher of the two, since either may be behind); limits only the API knows (Fable, extra usage, anything new) come from the API.
+- While the feed is fresh, automatic polls ask the API at most every 15 minutes (for those extra limits and for the account check), and opening the panel or the window does not poll; Refresh still polls, within the one-minute floor. Otherwise polling is as in "Polling" below, and a feed going quiet brings that schedule back at once.
 - The panel's source line says "Live from Claude Code" while the feed is fresh, and "From Anthropic" otherwise.
 
-Last numbers survive a relaunch: Gondar saves the last snapshot it showed (account and organisation IDs, the limits, the time; never a token, never an email) to `~/Library/Application Support/Gondar/last.json`, and at launch shows it at once, marked with its age, if it belongs to the account `~/.claude.json` names.
+Last numbers survive a relaunch: Gondar saves the last snapshot it showed (account and organisation IDs, the limits, the time; never a token, never an email) to `~/Library/Application Support/Gondar/last.json`, and at launch shows it at once, stale with "Last numbers from before Gondar restarted." ("Restored" in the pop-out) and its age, if it belongs to the account `~/.claude.json` names, until the first live or API result. A failed first poll replaces that reason with its own and keeps the age. It is rewritten when the limits change, otherwise at most once a minute.
 The header's email, organisation and plan come from `~/.claude.json` (`emailAddress`, `organizationName`, `organizationType`, `organizationRateLimitTier`) until the profile endpoint confirms them, so nothing personal is written by Gondar.
 
 ### Source 1: Claude Code's login (measured 2026-10-20)
@@ -164,7 +167,7 @@ That rule is the menu bar's alone: rows in the panel and the floating window kee
 
 Opened by clicking the menu bar item; a window-style `MenuBarExtra`, as in PortGlimpse.
 A header with the signed-in account's email and organisation name, the plan (from `subscriptionType` and `rateLimitTier` where known, for example "Max · Max 20x") and "Updated 1 min ago".
-Builder's call: the source line ("From Claude Code" or "From claude.ai") sits in the header, under the age, rather than in the footer.
+Builder's call: the source line ("Live from Claude Code" while fresh feed numbers are shown and current, "From Anthropic" otherwise, "From claude.ai" with source 2) sits in the header, under the age, rather than in the footer.
 The floating window does not show the email: it is kept as minimal as possible (decided 2026-10-20), so a switch shows in the panel.
 One row per limit, in the order the source gives: a name ("Current session", "Weekly · all models", "Weekly · Fable"), a bar, the percentage, and "Resets in 1 h 36 m · 11:20 PM" (the clock time in the Mac's own format, with the date when it is not today).
 Bars take the same level colour as the percentage above them (green, amber, red; decided 2026-10-20), including inactive limits.
@@ -173,7 +176,7 @@ A limit that is not active keeps its level colour, so the colour always means th
 Each colour is at least 4.5:1 on the panel `#201B17` (8.2, 7.2 and 5.7).
 If extra usage is enabled, a last row shows spend against its limit in its own currency.
 Builder's call: when that limit is zero, the row shows the spend alone, as "<amount> used", since a zero cap is no limit worth comparing with.
-A footer with "Pop out" (opens the floating window), "Refresh", a source line ("From Claude Code" or "From claude.ai"), "Sign in to claude.ai" / "Sign out", "Launch at login", and "Quit".
+A footer with "Pop out" (opens the floating window), "Refresh", a source line (see above), "Sign in to claude.ai" / "Sign out", "Launch at login", and "Quit".
 As built, the footer holds Settings (a menu with "Launch at login" and, once the repo is public, "Check for updates"), "Pop out", "Refresh" and "Quit"; "Sign in to claude.ai" and "Sign out" come with source 2.
 
 ### The floating window

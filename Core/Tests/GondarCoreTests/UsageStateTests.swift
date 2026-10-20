@@ -214,3 +214,18 @@ private func snap(account: String, org: String = "org") -> Snapshot {
     #expect(Problem.restored.message == "Last numbers from before Gondar restarted.")
     #expect(Problem.restored.shortLabel == "Restored")
 }
+
+/// "Live from Claude Code" never sits beside a stale reason: kept numbers are not live.
+@Test func staleNumbersAreNeverLive() {
+    let base = snap(account: "a")
+    let live = Snapshot(profile: base.profile, plan: base.plan, report: base.report, fetchedAt: base.fetchedAt, source: .claudeCode, live: true)
+    var state = UsageState()
+    state.accountChanged(to: key("a"))
+    state.received(live)
+    state.failed(.rateLimited)
+    #expect(state.display == .stale(base, .rateLimited))
+    #expect(state.display.snapshot.map(SourceText.line) == "From Anthropic")
+    let presented = Display.ready(live).presented(now: live.fetchedAt + 601)
+    #expect(presented.snapshot?.live == false)
+    #expect(presented.snapshot.map(SourceText.line) == "From Anthropic")
+}

@@ -87,5 +87,5 @@ private func snapshot(_ limits: [UsageLimit]) -> Snapshot {
     let base = snapshot([limit(.session, percent: 12)])
     let live = Snapshot(profile: base.profile, plan: nil, report: base.report, fetchedAt: base.fetchedAt, source: .claudeCode, live: true)
     #expect(Display.ready(live).presented(now: live.fetchedAt + 599) == .ready(live))
-    #expect(Display.ready(live).presented(now: live.fetchedAt + 601) == .stale(live, .notUpdating))
+    #expect(Display.ready(live).presented(now: live.fetchedAt + 601) == .stale(live.notLive, .notUpdating))
 }
