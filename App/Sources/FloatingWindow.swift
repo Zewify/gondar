@@ -3,11 +3,13 @@ import GondarCore
 import SwiftUI
 
 /// Owns the one pop-out window: always on top, on every Space and over full-screen apps,
-/// with the traffic lights drawn inside Gondar's own dark header.
+/// with the traffic lights drawn in a strip of Gondar's own dark background.
 @MainActor
 final class FloatingWindowController: NSObject, NSWindowDelegate {
-    static let defaultSize = NSSize(width: 320, height: 300)
-    static let minimumSize = NSSize(width: 230, height: 140)
+    /// The first open's size, before the first numbers fit its height to the rows.
+    static let defaultSize = NSSize(width: WindowView.minimumWidth, height: 140)
+    /// As narrow as one line per limit allows; as short as the strip and one line.
+    static let minimumSize = NSSize(width: WindowView.minimumWidth, height: WindowView.stripHeight + 34)
     static let autosaveName = "GondarWindow"
     /// Set while the window is open, so a relaunch reopens it; quitting leaves it set.
     static let openKey = "floatingWindowOpen"
@@ -116,10 +118,10 @@ final class FloatingWindowController: NSObject, NSWindowDelegate {
         if !isPlacing { isFitted = true }
     }
 
-    /// AppKit places the traffic lights on the title bar's centre line, which sits above the taller header's.
+    /// AppKit places the traffic lights on the title bar's centre line, which sits above the taller strip's.
     /// It lays them out again on resize and focus changes, so every one of those moves them back down.
     private func centreTrafficLights(in window: NSWindow) {
-        let centreFromTop = WindowView.headerHeight / 2
+        let centreFromTop = WindowView.stripHeight / 2
         for kind in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
             guard let button = window.standardWindowButton(kind), let titlebar = button.superview else { continue }
             let y = titlebar.frame.height - centreFromTop - button.frame.height / 2
@@ -164,7 +166,7 @@ final class FloatingWindowController: NSObject, NSWindowDelegate {
     }
 }
 
-/// Lets the window be dragged by the header: a mouse-down here starts a window drag.
+/// Lets the window be dragged by the strip: a mouse-down here starts a window drag.
 struct WindowDragHandle: NSViewRepresentable {
     func makeNSView(context: Context) -> DragView { DragView() }
     func updateNSView(_ view: DragView, context: Context) {}

@@ -16,7 +16,7 @@ The floating window is the part those apps don't obviously offer.
 
 - The menu bar always shows the session percentage at a glance.
 - Clicking it opens a panel listing every limit: its name, a bar, the percentage, and when it resets, as both a countdown and a clock time.
-- A floating window shows the same list, stays above other windows on every Space and over full-screen apps, and reopens where it was left.
+- A floating window shows the same limits, one line each, stays above other windows on every Space and over full-screen apps, and reopens where it was left.
 - New limits that Anthropic adds (a new scoped model, say) appear without an app update.
 - It works on a Mac where Claude Code is not running, and on a Mac where Claude Code was never installed.
 - Anyone can install it from zewify.com.
@@ -137,7 +137,7 @@ A stale number is drawn muted, whatever its percentage, so it never looks curren
 Opened by clicking the menu bar item; a window-style `MenuBarExtra`, as in PortGlimpse.
 A header with the signed-in account's email and organisation name, the plan (from `subscriptionType` and `rateLimitTier` where known, for example "Max · Max 20x") and "Updated 1 min ago".
 Builder's call: the source line ("From Claude Code" or "From claude.ai") sits in the header, under the age, rather than in the footer.
-The floating window shows the email too, small, so a switch is visible there as well.
+The floating window does not show the email: it is kept as minimal as possible (decided 2026-10-20), so a switch shows in the panel.
 One row per limit, in the order the source gives: a name ("Current session", "Weekly · all models", "Weekly · Fable"), a bar, the percentage, and "Resets in 1 h 36 m · 11:20 PM" (the clock time in the Mac's own format, with the date when it is not today).
 Bars are amber; a limit that is not active is drawn muted.
 If extra usage is enabled, a last row shows spend against its limit in its own currency.
@@ -147,10 +147,13 @@ As built, the footer holds Settings (a menu with "Launch at login" and, once the
 
 ### The floating window
 
-The same rows as the panel, in a compact layout: always on top, on every Space and over full-screen apps, resizable, reopening at its last position and size.
-When it is narrow it shows only the name, percentage and countdown; the builder chooses the breakpoint.
-Builder's call: the window is narrow below 280 points wide, and cannot be made smaller than 230 × 140 points.
-In the narrow layout a passed reset reads "Resetting now" and a limit without one reads "No reset time".
+The same limits as the panel, as minimal as possible (decided on 2026-10-20: no graph): always on top, on every Space and over full-screen apps, resizable, reopening at its last position and size.
+Each limit is one line: the name, the percentage in IBM Plex Mono, right-aligned, and the countdown, muted ("1 h 36 m").
+There are no bars, no account header, no extra usage row and no footer; those all stay in the panel.
+The title area holds only the traffic lights, with no title text.
+A passed reset reads "Resetting now" and a limit without one reads "No reset time".
+The percentage is amber near the limit and muted for a limit that is not active, as in the panel.
+Builder's call: it cannot be made narrower than 272 points, which fits "Weekly · all models", "100%" and "Resetting now" on one line, nor shorter than one line; shorter than its rows, it scrolls.
 The first time it opens, it fits its height to its rows once, keeping its top edge and staying on the screen; after that, or as soon as the person moves or resizes it, the saved frame wins.
 Closing it does not quit the app.
 It remembers whether it was open and reopens at launch if it was.
@@ -158,7 +161,7 @@ It remembers whether it was open and reopens at launch if it was.
 ### Stale numbers and errors
 
 The builder's call on how stale states read: the numbers stay, the menu bar number turns muted, and the panel's header shows how old they are ("Updated 6 min ago") with the reason under it in amber.
-The narrow window, which otherwise shows the email alone, shows the age too once the numbers are stale.
+The floating window shows one line above its rows instead, with the age muted and the reason in amber; while loading it shows a small spinner, and without numbers the reason alone.
 As a backstop, numbers that no poll has replaced for longer than two intervals and a minute (300 seconds) are shown as stale with "Not updated for several minutes.", even when no failure explains it, so old numbers can never look current.
 Without numbers to keep, the reason shows alone in place of the rows.
 The reasons:
@@ -215,4 +218,4 @@ Using Claude logins from a third-party app is a grey area with Anthropic; readin
 
 ## Left to the builder
 
-Layout details, the polling interval within the limits above, the narrow-window breakpoint, row wording beyond the examples, how stale states read, and the error copy.
+Layout details, the polling interval within the limits above, row wording beyond the examples, how stale states read, and the error copy.

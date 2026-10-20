@@ -4,14 +4,11 @@ import SwiftUI
 
 /// Settings, Pop out, Refresh and Quit, in PortGlimpse's footer styling,
 /// with an update row above them when a newer release exists (never while `UpdateChecker.feed` is nil).
-/// The floating window passes no `onPopOut`, which hides Pop out.
-/// `compact` matches the narrow window's 12-point inset; the trailing padding plus the buttons' own 8 makes the same visible edge.
 struct PanelFooter: View {
     let model: UsageModel
     let loginItem: LoginItem
     @Bindable var updates: UpdateChecker
-    var onPopOut: (() -> Void)?
-    var compact = false
+    let onPopOut: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -20,14 +17,12 @@ struct PanelFooter: View {
                 Divider().overlay(Theme.line)
             }
             row
-            .padding(.leading, inset)
-            .padding(.trailing, compact ? 4 : 10)
+            .padding(.leading, 18)
+            .padding(.trailing, 10)
             .padding(.vertical, 10)
         }
         .background(Theme.footer)
     }
-
-    private var inset: CGFloat { compact ? 12 : 18 }
 
     private func updateRow(_ version: AppVersion) -> some View {
         HStack {
@@ -40,8 +35,8 @@ struct PanelFooter: View {
                 footerButton("Copy install command") { updates.copyInstallCommand() }
             }
         }
-        .padding(.leading, inset)
-        .padding(.trailing, compact ? 4 : 10)
+        .padding(.leading, 18)
+        .padding(.trailing, 10)
         .padding(.vertical, 8)
     }
 
@@ -66,9 +61,7 @@ struct PanelFooter: View {
         HStack(spacing: 4) {
             Spacer(minLength: 4)
             settingsMenu
-            if let onPopOut {
-                footerButton("Pop out", action: onPopOut)
-            }
+            footerButton("Pop out", action: onPopOut)
             footerButton("Refresh", action: model.refresh)
                 .disabled(!model.canRefresh)
                 .help(model.canRefresh ? "Check usage now" : "Checked under a minute ago")

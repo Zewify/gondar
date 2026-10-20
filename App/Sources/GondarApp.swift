@@ -26,7 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let loginItem = LoginItem()
     let updates = UpdateChecker()
     lazy var floatingWindow: FloatingWindowController = FloatingWindowController(model: model) { [unowned self] in
-        AnyView(WindowView(model: model, loginItem: loginItem, updates: updates) { [unowned self] content, viewport in
+        AnyView(WindowView(model: model) { [unowned self] content, viewport in
             floatingWindow.contentFit(content: content, viewport: viewport)
         })
     }

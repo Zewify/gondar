@@ -10,8 +10,8 @@ struct PanelView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            PanelHeader(model: model, compact: false)
-            LimitList(model: model, compact: false)
+            PanelHeader(model: model)
+            LimitList(model: model)
             Divider().overlay(Theme.line)
             PanelFooter(model: model, loginItem: loginItem, updates: updates, onPopOut: onPopOut)
         }

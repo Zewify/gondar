@@ -1,43 +1,36 @@
 import GondarCore
 import SwiftUI
 
-/// Every limit in the order the source gives, then extra usage, each after a divider; nothing until there are numbers.
-/// Shared by the panel and the floating window.
+/// The panel's rows: every limit in the order the source gives, then extra usage, each after a divider;
+/// nothing until there are numbers.
 struct LimitList: View {
     let model: UsageModel
-    let compact: Bool
 
     var body: some View {
         if let report = model.state.display.snapshot?.report {
             ForEach(report.limits) { limit in
                 Divider().overlay(Theme.line)
-                LimitRow(limit: limit, now: model.now, compact: compact)
+                LimitRow(limit: limit, now: model.now)
             }
             if let extra = report.extra {
                 Divider().overlay(Theme.line)
-                ExtraUsageRow(extra: extra, compact: compact)
+                ExtraUsageRow(extra: extra)
             }
         }
     }
 }
 
-/// One limit: its name, how much is used, and when it resets.
-/// `compact` is the narrow floating window's: name, countdown and percentage on one line.
+/// One limit in the panel: its name, how much is used, and when it resets.
 struct LimitRow: View {
     let limit: UsageLimit
     let now: Date
-    let compact: Bool
 
     var body: some View {
-        if compact { compactBody } else { fullBody }
-    }
-
-    private var fullBody: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                name
+                LimitName(limit: limit)
                 Spacer(minLength: 0)
-                percent
+                LimitPercent(limit: limit)
             }
             UsageBar(fraction: LimitText.barFraction(limit), fill: limit.isActive ? Theme.amber : Theme.muted)
                 .padding(.top, 8)
@@ -50,30 +43,26 @@ struct LimitRow: View {
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
     }
+}
 
-    private var compactBody: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            name
-            Spacer(minLength: 0)
-            Text(verbatim: ResetText.short(resetsAt: limit.resetsAt, now: now))
-                .font(Theme.body(12))
-                .foregroundStyle(Theme.muted)
-                .fixedSize()
-            percent
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-    }
+/// A limit's name, shared by the panel and the pop-out window.
+struct LimitName: View {
+    let limit: UsageLimit
 
-    private var name: some View {
+    var body: some View {
         Text(verbatim: LimitText.name(limit))
             .font(Theme.body(13, .semibold))
             .foregroundStyle(limit.isActive ? Theme.text : Theme.softText)
             .lineLimit(1)
             .truncationMode(.tail)
     }
+}
 
-    private var percent: some View {
+/// A limit's percentage, shared by the panel and the pop-out window: amber near the limit, muted when not active.
+struct LimitPercent: View {
+    let limit: UsageLimit
+
+    var body: some View {
         Text(verbatim: "\(limit.percent)%")
             .font(Theme.mono(13))
             .monospacedDigit()
@@ -85,7 +74,6 @@ struct LimitRow: View {
 /// Spend on extra usage against its monthly limit, in the account's own currency.
 struct ExtraUsageRow: View {
     let extra: ExtraUsage
-    let compact: Bool
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -103,8 +91,8 @@ struct ExtraUsageRow: View {
             }
             .fixedSize()
         }
-        .padding(.horizontal, compact ? 12 : 18)
-        .padding(.vertical, compact ? 6 : 12)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 12)
     }
 
     private func amount(_ text: String) -> Text {
